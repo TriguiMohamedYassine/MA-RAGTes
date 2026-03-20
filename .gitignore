@@ -1,0 +1,24 @@
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Node / Hardhat
+node_modules/
+artifacts/
+cache/
+.coverage_contracts/
+
+# Generated outputs and reports
+outputs/
+coverage/
+mochawesome-report/
+coverage.json
+test/generated_test.js
+
+# OS/editor misc
+.DS_Store
+Thumbs.db
