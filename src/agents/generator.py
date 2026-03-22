@@ -209,15 +209,8 @@ def generator_corrector_node(state):
     chain = GENERATOR_CORRECTOR_PROMPT | llm
     parser = JsonOutputParser()
     
-    report_failed_titles = _extract_failed_test_titles_from_report(state.get("test_report", {}))
-    analyzer_failed_titles = _extract_failed_test_titles_from_analyzer(state.get("analyzer_report", {}))
-
-    # Prefer concrete Mochawesome failures and use analyzer as fallback/supplement.
-    failed_titles = list(report_failed_titles)
-    if not failed_titles:
-        failed_titles.extend(analyzer_failed_titles)
-    else:
-        failed_titles.extend(title for title in analyzer_failed_titles if title not in failed_titles)
+    # Use analyzer feedback as the single source of failing test targets.
+    failed_titles = _extract_failed_test_titles_from_analyzer(state.get("analyzer_report", {}))
 
     # Preserve order, remove duplicates.
     seen = set()
