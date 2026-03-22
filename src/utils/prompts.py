@@ -1,245 +1,199 @@
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+"""
+prompts.py
+----------
+Définit tous les prompts LangChain utilisés dans le pipeline.
 
-GLOBAL_RULE = """
-You are an expert in Solidity, Hardhat, Mocha, and smart contract testing.
-
-Always:
-- Return STRICT JSON (no explanation outside JSON)
-- Be deterministic and structured
-- Do not hallucinate functions that do not exist in the contract
-- Use only information from the inputs
-
-Output must be valid JSON parsable by Python.
+Convention : les accolades littérales dans les templates ChatPromptTemplate
+doivent être doublées ({{ }}) pour ne pas être interprétées comme des
+variables de substitution.
 """
 
-BONUS_PROMPT = """
-IMPORTANT:
-- Focus on branch coverage (if/else, require)
-- Include revert tests
-- Include edge values (0, max, invalid input)
-- Avoid redundant tests
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
+
+# ---------------------------------------------------------------------------
+# Règles communes injectées dans chaque prompt système
+# ---------------------------------------------------------------------------
+
+_GLOBAL_RULES = """
+Tu es un expert Solidity, Hardhat, Mocha et test de smart contracts.
+
+Règles absolues :
+- Retourne du JSON strict (aucun texte en dehors du JSON)
+- Sois déterministe et structuré
+- N'hallucine pas de fonctions absentes du contrat
+- Le JSON doit être parsable directement par Python json.loads()
 """
+
+_COVERAGE_RULES = """
+Consignes de couverture :
+- Privilégie la couverture de branches (if/else, require)
+- Inclus des tests de revert et des valeurs limites (0, max, entrée invalide)
+"""
+
+# ---------------------------------------------------------------------------
+# TEST DESIGNER
+# ---------------------------------------------------------------------------
 
 TEST_DESIGNER_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(GLOBAL_RULE + "\n" + """
-You are an expert Blockchain QA Engineer.
+    SystemMessagePromptTemplate.from_template(
+        _GLOBAL_RULES + """
+OBJECTIF : Concevoir une stratégie de tests complète pour le contrat Solidity fourni.
 
-YOUR GOAL:
-Design a comprehensive test strategy for the provided Solidity contract.
-
-SOURCES OF TRUTH (priority order):
-1. USER REQUIREMENTS / USER STORY
-2. SOLIDITY CODE
-
-INSTRUCTIONS:
-- Analyze the contract behavior and requirements together.
-- Generate test strategy only (NOT executable JS code).
-- Cover nominal behavior, edge cases, failure paths, and security misuse cases.
-- Include meaningful negative tests with expected revert behavior when relevant.
-- Do not invent functions, events, or custom errors not present in code.
-
-SECURITY FOCUS (MANDATORY WHEN APPLICABLE):
-- Access control and authorization checks
-- Reentrancy-sensitive flows
-- Input/state validation abuse
-- Denial-of-service style misuse
-
-REQUIRED JSON OUTPUT FORMAT:
+FORMAT DE SORTIE (JSON uniquement) :
 {{
-  "contract_name": "<name>",
-  "functional_tests": [
+  "contract_name": "<nom>",
+  "test_suites": [
     {{
-      "name": "<short title>",
-      "description": "<what is tested and why>",
-      "target_function": "<function name>",
-      "inputs": {{"arg_name": "example_value"}},
-      "expected_behavior": "<state/event/return expectation>",
-      "type": "nominal | boundary | failure"
-    }}
-  ],
-  "security_tests": [
-    {{
-      "name": "<short title>",
-      "description": "<security constraint tested>",
-      "target_function": "<function name>",
-      "inputs": {{"arg_name": "malicious_or_invalid_value"}},
-      "expected_behavior": "<revert/restriction/invariant expectation>",
-      "type": "access_control | reentrancy | validation | dos"
+      "suite_name": "<nom de la suite>",
+      "test_cases": [
+        {{
+          "test_title": "<should…>",
+          "target_function": "<fonction>",
+          "inputs": {{}},
+          "expected_behavior": "…"
+        }}
+      ]
     }}
   ]
 }}
-
-RESTRICTIONS:
-- Output ONLY valid JSON.
-- No markdown code blocks.
-"""),
+"""
+    ),
     HumanMessagePromptTemplate.from_template("""
-Requirements / User Story:
+=== CONTEXTE STANDARDS ERC ===
+{erc_context}
+
+=== USER STORY / EXIGENCES ===
 {user_story}
 
-Solidity Source Code:
+=== CONTRAT SOLIDITY ===
 {contract_code}
-""")
+"""),
 ])
+
+# ---------------------------------------------------------------------------
+# GENERATOR — première génération
+# ---------------------------------------------------------------------------
 
 GENERATOR_NORMAL_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(GLOBAL_RULE + "\n" + BONUS_PROMPT + "\n" + """
-You are a Blockchain QA Engineer expert in Hardhat + Ethers v6.
+    SystemMessagePromptTemplate.from_template(
+        _GLOBAL_RULES + _COVERAGE_RULES + """
+OBJECTIF : Écrire le fichier de tests JavaScript à partir de la stratégie fournie.
 
-MISSION:
-Generate robust, executable JavaScript tests from the provided test strategy and Solidity code.
+Règles techniques :
+- Utilise les matchers Chai : expect(await …).to.be.revertedWith(…)
+- Utilise loadFixture et les standards Hardhat Ethers v6
+- Retourne le code JS complet dans la clé "updated_test_code"
 
-IMPLEMENTATION RULES:
-- Use mocha + chai + Hardhat runtime style.
-- Use describe/it structure with clear test names.
-- Cover each strategy item with at least one meaningful test.
-- Use async/await correctly for every blockchain interaction.
-- Include deployment setup in beforeEach.
-- Use ethers.js v6 syntax only.
-- Use BigInt-safe assertions and values where needed.
-- Include revert tests for negative/failure scenarios.
-- Assert events when behavior implies event emission.
-- Do not mutate Solidity state variables directly from tests.
-- Call only functions that exist in the provided contract.
-- Do not invent access control logic if not present in contract.
-- Avoid duplicate or redundant tests.
-
-OUTPUT FORMAT:
-{{
- "test_code": "FULL JS CODE HERE"
-}}
-
-RESTRICTIONS:
-- Output ONLY valid JSON.
-- No markdown code blocks.
-"""),
+FORMAT DE SORTIE :
+{{ "updated_test_code": "const {{ expect }} = require('chai');\\n…" }}
+"""
+    ),
     HumanMessagePromptTemplate.from_template("""
-Smart Contract:
+=== 1. STANDARDS ERC ===
+{erc_context}
+
+=== 2. EXEMPLES DE RÉFÉRENCE ===
+{relevant_examples}
+
+=== 3. CONTRAT SOLIDITY ===
 {contract_code}
 
-Test Design:
+=== 4. STRATÉGIE DE TESTS (JSON) ===
 {test_design_json}
-""")
+"""),
 ])
+
+# ---------------------------------------------------------------------------
+# GENERATOR — correcteur / itération
+# ---------------------------------------------------------------------------
 
 GENERATOR_CORRECTOR_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(GLOBAL_RULE + "\n" + BONUS_PROMPT + "\n" + """
-You are a Senior Web3 QA Engineer.
+    SystemMessagePromptTemplate.from_template(
+        _GLOBAL_RULES + _COVERAGE_RULES + """
+OBJECTIF : Corriger les tests JS existants pour les faire passer et améliorer
+la couverture d'après le rapport de l'Analyser.
 
-MISSION:
-Fix failing tests and improve meaningful coverage while preserving working behavior.
+Retourne le code JS complet et corrigé dans la clé "updated_test_code".
 
-TASKS:
-- Replace failing tests based on analyzer feedback (do not keep the broken versions).
-- Add missing tests for uncovered branches/functions/edge cases.
-- Keep valid existing tests whenever possible.
-- Improve branch and revert-path coverage.
-- Maintain ethers.js v6 compatibility.
-
-CRITICAL RULES:
-- Use BigInt-safe values and assertions where appropriate.
-- Keep deployment and signer usage valid for Hardhat + ethers v6.
-- Never mutate Solidity state variables directly from tests.
-- Do not invent functions/events/errors not in contract.
-- Avoid duplicate test cases.
-- Do not increase test count by re-adding existing failing tests under new names.
-- If a failing test is listed, rewrite its logic and keep only one corrected version.
-- Return a complete, runnable test file.
-
-OUTPUT FORMAT:
-{{
- "updated_test_code": "FULL UPDATED JS CODE"
-}}
-
-RESTRICTIONS:
-- Output ONLY valid JSON.
-- No markdown code blocks.
-"""),
+FORMAT DE SORTIE :
+{{ "updated_test_code": "const {{ expect }} = require('chai');\\n…" }}
+"""
+    ),
     HumanMessagePromptTemplate.from_template("""
-Smart Contract:
+=== 1. STANDARDS ERC ===
+{erc_context}
+
+=== 2. EXEMPLES DE RÉFÉRENCE ===
+{relevant_examples}
+
+=== 3. CONTRAT SOLIDITY ===
 {contract_code}
 
-Existing Test Code:
+=== 4. CODE DE TESTS ACTUEL ===
 {test_code}
 
-Failing Tests To Replace:
+=== 5. TESTS EN ÉCHEC ===
 {failed_tests_json}
 
-Analyzer Report:
+=== 6. RAPPORT DE L'ANALYSER ===
 {analyzer_json}
-""")
+"""),
 ])
+
+# ---------------------------------------------------------------------------
+# ANALYZER
+# ---------------------------------------------------------------------------
 
 ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(GLOBAL_RULE + "\n" + BONUS_PROMPT + "\n" + """
-🎯 Goal:
-Detect missing coverage + errors
+    SystemMessagePromptTemplate.from_template(
+        _GLOBAL_RULES + _COVERAGE_RULES + """
+OBJECTIF : Analyser les tests et identifier les échecs, les fonctions/branches
+non couvertes et les cas limites manquants.
 
-TASK:
-Analyze and identify:
-1. Failing tests and root causes
-2. Uncovered functions
-3. Uncovered branches (if/else, require, modifiers)
-4. Missing edge cases
-
-OUTPUT FORMAT:
+FORMAT DE SORTIE :
 {{
- "failures": [
-   {{
-     "test": "name",
-     "reason": "why it failed",
-     "fix": "how to fix"
-   }}
- ],
- "missing_coverage": {{
-   "functions": ["function1", "function2"],
-   "branches": ["condition1", "require(...)"],
-   "edge_cases": ["case1", "case2"]
- }},
- "suggestions": [
-   "Add test for ...",
-   "Test revert when ..."
- ]
+  "failures": [
+    {{"test": "<nom>", "reason": "<pourquoi>", "fix": "<comment corriger>"}}
+  ],
+  "missing_coverage": {{
+    "functions": [],
+    "branches": [],
+    "edge_cases": []
+  }},
+  "suggestions": []
 }}
-"""),
+"""
+    ),
     HumanMessagePromptTemplate.from_template("""
-Smart Contract:
-{contract_code}
-
-Test Code:
-{test_code}
-
-Test Report:
-{mochawesome_json}
-
-Coverage Report:
-{coverage_json}
-""")
+Contrat      : {contract_code}
+Code de test : {test_code}
+Rapport test : {mochawesome_json}
+Couverture   : {coverage_json}
+"""),
 ])
 
+# ---------------------------------------------------------------------------
+# EVALUATOR
+# ---------------------------------------------------------------------------
+
 EVALUATOR_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(GLOBAL_RULE + "\n" + """
-🎯 Decision maker
+    SystemMessagePromptTemplate.from_template(
+        _GLOBAL_RULES + """
+CRITÈRES pour relancer la génération :
+  - Nombre de tests en échec > 0
+  - Couverture de branches < 80 %
+  - Couverture des instructions < 85 %
 
-TASK:
-Decide next step based on:
-
-RULES:
-- If failed tests > 0 → FIX
-- Else if branch coverage < 80 → IMPROVE
-- Else → STOP
-
-OUTPUT FORMAT:
-{{
- "decision": "fix | improve | stop",
- "reason": "short explanation"
-}}
-"""),
+FORMAT DE SORTIE :
+{{ "decision": "stop|regenerate", "reason": "<explication claire>" }}
+"""
+    ),
     HumanMessagePromptTemplate.from_template("""
-Execution Summary:
-{execution_summary}
-
-Analyzer Report:
-{analyzer_json}
-""")
+Résumé d'exécution : {execution_summary}
+Rapport Analyser  : {analyzer_json}
+"""),
 ])

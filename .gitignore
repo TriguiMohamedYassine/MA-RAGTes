@@ -11,6 +11,7 @@ node_modules/
 artifacts/
 cache/
 .coverage_contracts/
+data/
 
 # Generated outputs and reports
 outputs/
