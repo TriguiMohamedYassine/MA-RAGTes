@@ -22,10 +22,6 @@ from src.config                import MAX_RETRIES
 # ---------------------------------------------------------------------------
 # Définition du state partagé
 # ---------------------------------------------------------------------------
-# LangGraph fusionne les dicts retournés par chaque nœud dans le state global.
-# Il faut utiliser TypedDict (et non dict) pour que la fusion fonctionne
-# correctement, notamment pour les champs scalaires comme `iterations`.
-# ---------------------------------------------------------------------------
 
 class PipelineState(TypedDict, total=False):
     contract_code:       str
@@ -33,6 +29,7 @@ class PipelineState(TypedDict, total=False):
     erc_context:         str
     test_design:         dict
     test_code:           str
+    rag_cache:           dict
     test_report:         dict
     coverage_report:     dict
     execution_summary:   dict
@@ -40,6 +37,24 @@ class PipelineState(TypedDict, total=False):
     evaluation_decision: str
     evaluation_reason:   str
     iterations:          int
+    prev_score:          float   # FIX : score de l'itération précédente pour détection de stagnation
+
+
+# ---------------------------------------------------------------------------
+# Helpers : calcul du score composite
+# ---------------------------------------------------------------------------
+
+def _compute_score(state: PipelineState) -> float:
+    """
+    Score composite = (tests passés × 10) + coverage statements.
+    Utilisé pour détecter la stagnation entre deux itérations.
+    """
+    summary  = state.get("execution_summary", {})
+    coverage = summary.get("coverage", {})
+    return (
+        summary.get("passed", 0) * 10
+        + coverage.get("statements", 0)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -50,21 +65,34 @@ def _route_after_evaluation(state: PipelineState) -> str:
     """
     Retourne ``"increment"`` (→ corrector) si le pipeline doit régénérer, ``END`` sinon.
 
-    Le nœud ``increment`` s'exécute en premier pour mettre à jour le compteur,
-    puis enchaîne sur ``corrector``. Ainsi la valeur affichée dans les logs
-    reflète toujours l'itération en cours.
+    FIX : arrêt précoce par stagnation — si le score ne progresse pas entre
+    deux itérations consécutives (à partir de l'itération 2), on force END
+    pour éviter de boucler inutilement jusqu'à MAX_RETRIES.
     """
     decision   = state.get("evaluation_decision", "stop")
     iterations = state.get("iterations", 0)
 
     _print_execution_summary(state)
 
+    # Arrêt forcé sur limite max
     if iterations >= MAX_RETRIES:
         print(f"[Orchestrator] ⛔ Limite de {MAX_RETRIES} itérations atteinte. Arrêt forcé.")
         return END
 
+    # FIX : arrêt précoce par stagnation (à partir de l'itération 2)
+    if decision == "regenerate" and iterations >= 2:
+        curr_score = _compute_score(state)
+        prev_score = state.get("prev_score", -1.0)
+        if curr_score <= prev_score:
+            print(
+                f"[Orchestrator] ⛔ Stagnation détectée "
+                f"(score courant={curr_score:.1f} ≤ précédent={prev_score:.1f}). "
+                f"Arrêt forcé après {iterations} itération(s)."
+            )
+            return END
+
     if decision == "regenerate":
-        return "increment"   # increment → corrector → executor → …
+        return "increment"
 
     print(f"[Orchestrator] ✅ Critères satisfaits après {iterations} itération(s). Arrêt.")
     return END
@@ -72,12 +100,16 @@ def _route_after_evaluation(state: PipelineState) -> str:
 
 def _increment_iterations(state: PipelineState) -> dict:
     """
-    Incrémente le compteur d'itérations.
-    Retourne UNIQUEMENT la clé modifiée — LangGraph fusionne le reste automatiquement.
+    Incrémente le compteur d'itérations et sauvegarde le score courant
+    pour permettre la détection de stagnation à l'itération suivante.
     """
-    new_count = state.get("iterations", 0) + 1
-    print(f"[Orchestrator] 🔁 Itération {new_count}/{MAX_RETRIES} — lancement de la correction…")
-    return {"iterations": new_count}
+    new_count  = state.get("iterations", 0) + 1
+    curr_score = _compute_score(state)
+    print(
+        f"[Orchestrator] 🔁 Itération {new_count}/{MAX_RETRIES} "
+        f"— score={curr_score:.1f} — lancement de la correction…"
+    )
+    return {"iterations": new_count, "prev_score": curr_score}
 
 
 # ---------------------------------------------------------------------------
@@ -91,11 +123,12 @@ def _print_execution_summary(state: PipelineState) -> None:
     reason   = state.get("evaluation_reason", "")
     coverage = summary.get("coverage", {})
 
-    total    = summary.get("total",  0)
-    passed   = summary.get("passed", 0)
-    failed   = summary.get("failed", 0)
-    stmts    = coverage.get("statements", 0)
-    branches = coverage.get("branches",   0)
+    total     = summary.get("total",  0)
+    passed    = summary.get("passed", 0)
+    failed    = summary.get("failed", 0)
+    stmts     = coverage.get("statements", 0)
+    branches  = coverage.get("branches",   0)
+    functions = coverage.get("functions",  0)
 
     bar_ok  = "█" * passed
     bar_err = "░" * failed
@@ -103,9 +136,10 @@ def _print_execution_summary(state: PipelineState) -> None:
     print("\n" + "─" * 50)
     print("  📊  RÉSULTATS D'EXÉCUTION")
     print("─" * 50)
-    print(f"  Tests   : {bar_ok}{bar_err}  {passed} ✅  {failed} ❌  (total : {total})")
+    print(f"  Tests     : {bar_ok}{bar_err}  {passed} ✅  {failed} ❌  (total : {total})")
     print(f"  Coverage statements : {stmts:.1f} %")
     print(f"  Coverage branches   : {branches:.1f} %")
+    print(f"  Coverage functions  : {functions:.1f} %")
     print(f"  Décision évaluateur : {'🔁 REGENERATE' if decision == 'regenerate' else '🛑 STOP'}")
     if reason:
         print(f"  Raison              : {reason}")
@@ -125,7 +159,7 @@ def build_graph() -> StateGraph:
                                 ↑                                      |
                                 └──────── corrector ←──── (regenerate) ┘
     """
-    graph = StateGraph(PipelineState)  # TypedDict → fusion automatique par LangGraph
+    graph = StateGraph(PipelineState)
 
     # --- Nœuds ---
     graph.add_node("test_designer",    test_designer_node)
@@ -144,8 +178,6 @@ def build_graph() -> StateGraph:
     graph.add_edge("analyzer",         "evaluator")
 
     # --- Routage conditionnel depuis l'Évaluateur ---
-    # La fonction retourne "increment" ou END.
-    # "increment" incrémente le compteur puis enchaîne sur "corrector".
     graph.add_conditional_edges(
         "evaluator",
         _route_after_evaluation,

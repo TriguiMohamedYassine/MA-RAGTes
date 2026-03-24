@@ -77,7 +77,12 @@ def get_code_llm() -> ChatMistralAI:
 # Invocation avec retry
 # ---------------------------------------------------------------------------
 
-def invoke_with_retry(chain: Any, payload: dict, retries: int = 3, delay: float = 2.0) -> Any:
+def invoke_with_retry(
+    chain: Any,
+    payload: dict,
+    retries: int = 3,
+    delay: float = 15.0,   # FIX : 2.0 → 15.0 pour absorber les rate limits Mistral (429)
+) -> Any:
     """
     Invoque ``chain`` avec ``payload``, en réessayant jusqu'à ``retries`` fois.
 
@@ -86,6 +91,7 @@ def invoke_with_retry(chain: Any, payload: dict, retries: int = 3, delay: float 
         payload: Dictionnaire d'entrée.
         retries: Nombre maximum de tentatives.
         delay:   Délai en secondes entre tentatives.
+                 FIX : augmenté à 15s pour respecter les quotas Mistral.
 
     Returns:
         Résultat de l'invocation.
@@ -97,8 +103,8 @@ def invoke_with_retry(chain: Any, payload: dict, retries: int = 3, delay: float 
 
     for attempt in range(1, retries + 1):
         try:
-            start  = time.perf_counter()
-            result = chain.invoke(payload)
+            start   = time.perf_counter()
+            result  = chain.invoke(payload)
             elapsed = time.perf_counter() - start
 
             _LLM_STATS["calls"] += 1
@@ -109,7 +115,9 @@ def invoke_with_retry(chain: Any, payload: dict, retries: int = 3, delay: float 
         except Exception as exc:
             last_error = exc
             if attempt < retries:
-                print(f"[LLM] Tentative {attempt}/{retries} échouée : {exc}. Retry dans {delay}s…")
-                time.sleep(delay)
+                # FIX : délai exponentiel en cas de 429 pour mieux absorber le rate limit
+                wait = delay * attempt if "429" in str(exc) else delay
+                print(f"[LLM] Tentative {attempt}/{retries} échouée : {exc}. Retry dans {wait:.0f}s…")
+                time.sleep(wait)
 
     raise last_error  # type: ignore[misc]

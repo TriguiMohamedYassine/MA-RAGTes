@@ -5,6 +5,10 @@ Agent LangGraph responsable de la conception de la stratégie de tests.
 
 Utilise le RAG ERC pour enrichir le contexte avant d'appeler le LLM,
 puis persiste le résultat dans OUTPUT_DIR/test_design.json.
+
+FIX : ajout d'un try/except avec fallback minimal (comme analyzer_node),
+      et stockage du rag_cache dans le state pour éviter un 2ème appel RAG
+      dans generator_normal_node.
 """
 
 import json
@@ -28,31 +32,48 @@ def test_designer_node(state: dict) -> dict:
     Sorties ajoutées au state :
       - test_design  (dict)
       - erc_context  (str)
+      - rag_cache    (dict)  ← FIX : évite un 2ème appel RAG dans generator_normal_node
     """
     print("--- TEST DESIGNER ---")
 
     contract_code: str = state.get("contract_code", "")
 
     # --- Récupération du contexte ERC via RAG ---
+    # FIX : stocke le résultat complet dans rag_cache pour le partager avec generator_normal
+    rag_cache: dict = {}
     try:
         rag = AdvancedRAG(collection_name="erc_standards")
-        rag_result = rag.retrieve(contract_code)
-        erc_context: str = rag_result.get("context", "Aucun standard détecté.")
+        rag_result   = rag.retrieve(contract_code)
+        erc_context  = rag_result.get("context", "Aucun standard détecté.")
+        rag_cache    = {
+            "context":       erc_context,
+            "detected_ercs": rag_result.get("detected_ercs", []),
+        }
     except Exception as exc:
         print(f"[Test Designer] RAG ERC échoué : {exc}")
         erc_context = "Contexte ERC indisponible."
+        rag_cache   = {"context": erc_context, "detected_ercs": []}
 
     # --- Appel LLM ---
-    llm = get_llm()
-    chain = TEST_DESIGNER_PROMPT | llm
+    llm    = get_llm()
+    chain  = TEST_DESIGNER_PROMPT | llm
     parser = JsonOutputParser()
 
-    message = invoke_with_retry(chain, {
-        "contract_code": contract_code,
-        "user_story":    state.get("user_story", ""),
-        "erc_context":   erc_context,
-    })
-    result: dict = parser.invoke(message)
+    # FIX : try/except avec fallback minimal pour ne pas tuer le pipeline
+    try:
+        message = invoke_with_retry(chain, {
+            "contract_code": contract_code,
+            "user_story":    state.get("user_story", ""),
+            "erc_context":   erc_context,
+        })
+        result: dict = parser.invoke(message)
+    except Exception as exc:
+        print(f"[Test Designer] ❌ Fallback LLM : {exc}")
+        result = {
+            "contract_name": "Unknown",
+            "test_suites":   [],
+            "error":         str(exc),
+        }
 
     # --- Persistance de l'artefact ---
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,4 +83,9 @@ def test_designer_node(state: dict) -> dict:
     except OSError as exc:
         print(f"[Test Designer] Impossible de sauvegarder test_design.json : {exc}")
 
-    return {"test_design": result, "erc_context": erc_context}
+    # FIX : retourne rag_cache pour éviter un 2ème appel RAG dans generator_normal_node
+    return {
+        "test_design": result,
+        "erc_context": erc_context,
+        "rag_cache":   rag_cache,
+    }

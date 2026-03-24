@@ -6,6 +6,10 @@ Définit tous les prompts LangChain utilisés dans le pipeline.
 Convention : les accolades littérales dans les templates ChatPromptTemplate
 doivent être doublées ({{ }}) pour ne pas être interprétées comme des
 variables de substitution.
+
+FIX : GENERATOR_NORMAL_PROMPT et GENERATOR_CORRECTOR_PROMPT demandent
+désormais du JS brut (plus de JSON wrapper) pour éviter les problèmes
+de parsing chez Codestral.
 """
 
 from langchain_core.prompts import (
@@ -32,6 +36,17 @@ _COVERAGE_RULES = """
 Consignes de couverture :
 - Privilégie la couverture de branches (if/else, require)
 - Inclus des tests de revert et des valeurs limites (0, max, entrée invalide)
+"""
+
+# FIX : règles spécifiques aux prompts de génération de code JS
+_CODE_RULES = """
+RÈGLES CRITIQUES pour le code généré :
+- Utilise UNIQUEMENT les contrats présents dans le fichier Solidity fourni
+- N'invente PAS de contrats auxiliaires (MaliciousContract, ReentrancyAttacker, Attacker, etc.)
+- Si tu veux tester la réentrance, utilise uniquement le contrat principal
+- N'utilise PAS ethers.utils.* — utilise ethers.parseEther(), ethers.parseUnits() directement
+- N'utilise PAS .deployed() — utilise .waitForDeployment()
+- Utilise loadFixture depuis @nomicfoundation/hardhat-toolbox/network-helpers
 """
 
 # ---------------------------------------------------------------------------
@@ -76,27 +91,26 @@ FORMAT DE SORTIE (JSON uniquement) :
 
 # ---------------------------------------------------------------------------
 # GENERATOR — première génération
+# FIX : demande du JS brut directement, plus de JSON wrapper
 # ---------------------------------------------------------------------------
 
 GENERATOR_NORMAL_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        _GLOBAL_RULES + _COVERAGE_RULES + """
-OBJECTIF : Écrire le fichier de tests JavaScript à partir de la stratégie fournie.
-
-Règles techniques :
-- Utilise les matchers Chai : expect(await …).to.be.revertedWith(…)
-- Utilise loadFixture et les standards Hardhat Ethers v6
-- Retourne le code JS complet dans la clé "updated_test_code"
+        _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
+OBJECTIF : Écrire le fichier de tests JavaScript complet à partir de la stratégie fournie.
 
 FORMAT DE SORTIE :
-{{ "updated_test_code": "const {{ expect }} = require('chai');\\n…" }}
+Retourne UNIQUEMENT le code JavaScript brut, sans aucun texte avant ou après,
+sans balises Markdown, sans JSON wrapper.
+Commence directement par la première ligne de code :
+const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
 === 1. STANDARDS ERC ===
 {erc_context}
 
-=== 2. EXEMPLES DE RÉFÉRENCE ===
+=== 2. EXEMPLES ET BONNES PRATIQUES ===
 {relevant_examples}
 
 === 3. CONTRAT SOLIDITY ===
@@ -109,25 +123,33 @@ FORMAT DE SORTIE :
 
 # ---------------------------------------------------------------------------
 # GENERATOR — correcteur / itération
+# FIX : demande du JS brut directement, plus de JSON wrapper
 # ---------------------------------------------------------------------------
 
 GENERATOR_CORRECTOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        _GLOBAL_RULES + _COVERAGE_RULES + """
+        _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
 OBJECTIF : Corriger les tests JS existants pour les faire passer et améliorer
 la couverture d'après le rapport de l'Analyser.
 
-Retourne le code JS complet et corrigé dans la clé "updated_test_code".
+Règles supplémentaires :
+- Garde tous les tests existants qui passent
+- Corrige uniquement les tests en échec listés dans le rapport
+- Ajoute les tests manquants signalés dans le rapport
+- Ne génère PAS de nouveaux contrats Solidity auxiliaires dans les tests
 
 FORMAT DE SORTIE :
-{{ "updated_test_code": "const {{ expect }} = require('chai');\\n…" }}
+Retourne UNIQUEMENT le code JavaScript brut corrigé et complet,
+sans aucun texte avant ou après, sans balises Markdown, sans JSON wrapper.
+Commence directement par :
+const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
 === 1. STANDARDS ERC ===
 {erc_context}
 
-=== 2. EXEMPLES DE RÉFÉRENCE ===
+=== 2. EXEMPLES ET BONNES PRATIQUES ===
 {relevant_examples}
 
 === 3. CONTRAT SOLIDITY ===
@@ -183,10 +205,15 @@ Couverture   : {coverage_json}
 EVALUATOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + """
-CRITÈRES pour relancer la génération :
-  - Nombre de tests en échec > 0
+CRITÈRES pour relancer la génération (decision = "regenerate") :
+  - Nombre de tests en échec > 0  ET  la cause est corrigeable (pas un contrat manquant)
   - Couverture de branches < 80 %
   - Couverture des instructions < 85 %
+
+CRITÈRES pour arrêter (decision = "stop") :
+  - Tous les tests passent (failures = 0)
+  - OU couverture statements >= 85% ET branches >= 80% ET failures <= 0
+  - OU les échecs restants sont dus à des contrats inexistants non corrigeables
 
 FORMAT DE SORTIE :
 {{ "decision": "stop|regenerate", "reason": "<explication claire>" }}

@@ -221,10 +221,11 @@ def _coverage_from_final_json(coverage_final: dict) -> dict:
     def pct(cov, tot):
         return round((cov / tot) * 100, 2) if tot else 0
 
+    # FIX : clé "statements" (cohérente avec orchestrator._print_execution_summary)
     return {
-        "lines":     pct(covered_stmts,   total_stmts),
-        "functions": pct(covered_funcs,   total_funcs),
-        "branches":  pct(covered_branches, total_branches),
+        "statements": pct(covered_stmts,   total_stmts),
+        "functions":  pct(covered_funcs,   total_funcs),
+        "branches":   pct(covered_branches, total_branches),
     }
 
 
@@ -232,13 +233,14 @@ def _build_cov_summary(coverage_report: dict) -> dict:
     if "total" in coverage_report:
         t = coverage_report["total"]
         return {
-            "lines":     t.get("lines",     {}).get("pct", 0),
-            "functions": t.get("functions", {}).get("pct", 0),
-            "branches":  t.get("branches",  {}).get("pct", 0),
+            # FIX : clé "statements" au lieu de "lines"
+            "statements": t.get("statements", t.get("lines", {})).get("pct", 0),
+            "functions":  t.get("functions", {}).get("pct", 0),
+            "branches":   t.get("branches",  {}).get("pct", 0),
         }
     elif coverage_report:
         return _coverage_from_final_json(coverage_report)
-    return {"lines": 0, "functions": 0, "branches": 0}
+    return {"statements": 0, "functions": 0, "branches": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -318,13 +320,13 @@ def executor_node(state: dict) -> dict:
         coverage_report = _load_json(BASE_DIR / "coverage" / "coverage-final.json")
 
     # ---- Stats ----
-    passed   = test_report.get("stats", {}).get("passes",   0)
-    failed   = test_report.get("stats", {}).get("failures", 0)
-    total    = test_report.get("stats", {}).get("tests",    passed + failed)
+    passed      = test_report.get("stats", {}).get("passes",   0)
+    failed      = test_report.get("stats", {}).get("failures", 0)
+    total       = test_report.get("stats", {}).get("tests",    passed + failed)
     cov_summary = _build_cov_summary(coverage_report)
 
     print(f"[Executor] Tests  : {passed} ✅  {failed} ❌  (total {total})")
-    print(f"[Executor] Coverage : statements {cov_summary.get('lines', 0):.1f}%  "
+    print(f"[Executor] Coverage : statements {cov_summary.get('statements', 0):.1f}%  "
           f"branches {cov_summary.get('branches', 0):.1f}%  "
           f"functions {cov_summary.get('functions', 0):.1f}%")
     if total == 0:

@@ -11,9 +11,10 @@ module.exports = {
     reporter: "mochawesome",
     reporterOptions: {
       reportDir: "mochawesome-report",
-      overwrite: true,
+      reportFilename: "mochawesome",
+      quiet: true,
+      json: true,
       html: false,
-      json: true
-    }
-  }
+    },
+  },
 };

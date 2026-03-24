@@ -5,9 +5,13 @@ Point d'entrée du pipeline de génération automatique de tests pour smart cont
 
 Usage :
     python main.py
+
+Nettoyage au démarrage :
+    Tous les dossiers et fichiers générés par le pipeline précédent sont supprimés
+    avant chaque exécution : outputs/, coverage/, mochawesome-report/, artifacts/,
+    cache/, test/generated_test.js et .coverage_contracts/.
 """
 
-import glob
 import shutil
 import sys
 from pathlib import Path
@@ -19,7 +23,53 @@ if str(_ROOT) not in sys.path:
 
 from src.workflows.orchestrator import build_graph
 from src.utils.llm import get_llm_stats, reset_llm_stats
-from src.config import CONTRACTS_DIR, OUTPUT_DIR, DEFAULT_CONTRACT_NAME
+from src.config import CONTRACTS_DIR, OUTPUT_DIR, DEFAULT_CONTRACT_NAME, BASE_DIR
+
+
+# ---------------------------------------------------------------------------
+# Nettoyage des artefacts du pipeline précédent
+# ---------------------------------------------------------------------------
+
+# Dossiers entiers à supprimer puis recréer vides
+_DIRS_TO_CLEAN: list[Path] = [
+    OUTPUT_DIR,                          # outputs/
+    BASE_DIR / "coverage",               # rapport solidity-coverage
+    BASE_DIR / "mochawesome-report",     # rapport JSON des tests Mocha
+    BASE_DIR / "artifacts",              # compilation Hardhat
+    BASE_DIR / "cache",                  # cache Hardhat
+    BASE_DIR / ".coverage_contracts",    # dossier temporaire de coverage
+    BASE_DIR / ".nyc_output",            # istanbul/nyc raw data
+]
+
+# Fichiers isolés à supprimer
+_FILES_TO_CLEAN: list[Path] = [
+    BASE_DIR / "test" / "generated_test.js",
+]
+
+
+def clean_pipeline_artifacts() -> None:
+    """
+    Supprime tous les fichiers et dossiers générés par le pipeline précédent.
+    Recrée OUTPUT_DIR vide pour accueillir les nouveaux artefacts.
+    """
+    print("[Main] 🧹 Nettoyage des artefacts précédents…")
+
+    for folder in _DIRS_TO_CLEAN:
+        if folder.exists():
+            shutil.rmtree(folder, ignore_errors=True)
+            print(f"[Main]   ✓ Supprimé : {folder.relative_to(BASE_DIR)}/")
+
+    for file_path in _FILES_TO_CLEAN:
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                print(f"[Main]   ✓ Supprimé : {file_path.relative_to(BASE_DIR)}")
+            except OSError as exc:
+                print(f"[Main]   ⚠️  Impossible de supprimer {file_path} : {exc}")
+
+    # Recrée OUTPUT_DIR vide
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print("[Main] ✅ Nettoyage terminé.\n")
 
 
 # ---------------------------------------------------------------------------
@@ -68,21 +118,15 @@ def load_user_story(contract_name: str) -> str:
     return ""
 
 
-def clean_previous_outputs() -> None:
-    """Supprime et recrée OUTPUT_DIR pour repartir d'un état propre."""
-    if OUTPUT_DIR.exists():
-        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print("[Main] Artefacts précédents supprimés.")
-
-
 # ---------------------------------------------------------------------------
 # Point d'entrée
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     reset_llm_stats()
-    clean_previous_outputs()
+
+    # Nettoyage complet des artefacts du pipeline précédent
+    clean_pipeline_artifacts()
 
     CONTRACTS_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -25,7 +25,7 @@ VECTOR_DB_DIR: Path = DATA_DIR / "vector_db"
 # Paramètres de l'application
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONTRACT_NAME: str = "MetaCoin"
+DEFAULT_CONTRACT_NAME: str = "CrowdFunding"
 MAX_RETRIES: int = 7
 
 # ---------------------------------------------------------------------------

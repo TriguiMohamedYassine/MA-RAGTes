@@ -11,30 +11,20 @@ Optimisations :
   - Le contexte RAG est mis en cache dans le state (clé 'rag_cache') pour
     éviter de refaire 3-4 appels LLM à chaque itération.
   - Modèle codestral-latest pour la génération de code JS.
+  - FIX : utilise GENERATOR_NORMAL_PROMPT et GENERATOR_CORRECTOR_PROMPT
+    définis dans prompts.py (cohérence avec le reste du pipeline).
 """
 
 import json
 import re
 import time
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_mistralai import ChatMistralAI
+from langchain_core.output_parsers import StrOutputParser
 
+from src.utils.prompts import GENERATOR_NORMAL_PROMPT, GENERATOR_CORRECTOR_PROMPT
 from src.utils.advanced_rag import AdvancedRAG
-from src.config import OUTPUT_DIR, MISTRAL_API_KEY
-
-
-# ---------------------------------------------------------------------------
-# LLM code
-# ---------------------------------------------------------------------------
-
-def _get_code_llm() -> ChatMistralAI:
-    """Codestral : modèle spécialisé code, bien meilleur que mistral-large pour du JS."""
-    return ChatMistralAI(
-        model="codestral-latest",
-        temperature=0,
-        mistral_api_key=MISTRAL_API_KEY,
-    )
+from src.utils.llm import get_code_llm, invoke_with_retry
+from src.config import OUTPUT_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +37,6 @@ def _get_rag_context(state: dict) -> tuple[str, list[str]]:
 
     Si le state contient déjà 'rag_cache', le réutilise sans rappeler le RAG.
     Sinon, exécute le pipeline RAG et stocke le résultat dans 'rag_cache'.
-
-    Cela évite 3-4 appels LLM supplémentaires à chaque itération du pipeline.
     """
     cache = state.get("rag_cache")
     if cache:
@@ -71,20 +59,110 @@ def _get_rag_context(state: dict) -> tuple[str, list[str]]:
 # Helpers nettoyage JS
 # ---------------------------------------------------------------------------
 
+# FIX : noms de contrats hallusinés par Codestral que Hardhat ne peut pas compiler
+_FAKE_CONTRACT_PATTERNS = [
+    r'.*getContractFactory\s*\(\s*["\']MaliciousContract["\']\s*\).*\n',
+    r'.*getContractFactory\s*\(\s*["\']ReentrancyAttacker["\']\s*\).*\n',
+    r'.*getContractFactory\s*\(\s*["\']Attacker["\']\s*\).*\n',
+    r'.*getContractFactory\s*\(\s*["\']MockContract["\']\s*\).*\n',
+    r'.*getContractFactory\s*\(\s*["\']FakeContract["\']\s*\).*\n',
+]
+
+# Noms de variables associés aux faux contrats (pour supprimer les lignes qui les utilisent)
+_FAKE_VAR_NAMES = [
+    "malicious", "attacker", "reentrancy", "reentrancyAttacker",
+    "maliciousContract", "attackContract", "fakeContract", "mockContract",
+]
+
+
+def _remove_fake_contracts(code: str) -> str:
+    """
+    Supprime les blocs de tests qui référencent des contrats inexistants
+    hallusinés par Codestral (MaliciousContract, ReentrancyAttacker, etc.).
+
+    Stratégie en 2 passes :
+      1. Supprime les lignes getContractFactory vers des contrats connus-faux.
+      2. Supprime les blocs it() entiers qui utilisent ces variables.
+    """
+    if not code:
+        return code
+
+    # Passe 1 : supprime les lignes de factory/deploy des faux contrats
+    for pattern in _FAKE_CONTRACT_PATTERNS:
+        code = re.sub(pattern, "", code, flags=re.IGNORECASE)
+
+    # Passe 2 : supprime les blocs it() qui contiennent des variables de faux contrats
+    for var in _FAKE_VAR_NAMES:
+        # Supprime les blocs it(...) { ... } qui contiennent la variable
+        pattern = (
+            r"it\s*\([^)]*\)\s*,\s*(?:async\s*)?(?:function\s*\([^)]*\)|\([^)]*\)\s*=>)\s*\{"
+            r"[^}]*" + re.escape(var) + r"[^}]*\}\s*\);\s*"
+        )
+        code = re.sub(pattern, "", code, flags=re.DOTALL | re.IGNORECASE)
+
+    removed_count = sum(
+        1 for v in _FAKE_VAR_NAMES if v.lower() in code.lower()
+    )
+    if removed_count == 0:
+        print("[CleanJS] Aucun contrat hallusiné détecté.")
+
+    return code
+
+
 def _clean_js_output(content: str) -> str:
-    """Supprime les fences Markdown et garantit les imports de base."""
+    """
+    Extrait le code JS brut depuis la réponse du LLM.
+
+    Le LLM peut retourner :
+      - Du JSON  {"updated_test_code": "..."}  (format des prompts)
+      - Du code JS directement enveloppé dans des fences Markdown
+      - Du code JS brut
+    """
+    if not content:
+        return ""
+
+    print(f"[CleanJS] Début contenu (50 premiers chars) : {repr(content[:50])}")
+
+    # Cas 1 : réponse JSON avec clé "updated_test_code"
+    stripped = content.strip()
+    if stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+            if "updated_test_code" in data:
+                content = data["updated_test_code"]
+                print(f"[CleanJS] JSON extrait : {len(content)} chars")
+        except json.JSONDecodeError:
+            # Tentative regex si le JSON est mal formé
+            m = re.search(
+                r'"updated_test_code"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                stripped,
+                re.DOTALL,
+            )
+            if m:
+                content = m.group(1).encode().decode("unicode_escape")
+                print(f"[CleanJS] JSON extrait via regex : {len(content)} chars")
+
+    # Cas 2 : fences Markdown ```javascript / ```js / ```
     pattern = r"```(?:javascript|js)?(.*?)```"
     match   = re.search(pattern, content, re.DOTALL)
     if match:
         content = match.group(1)
+        print(f"[CleanJS] Fence Markdown extraite : {len(content)} chars")
     else:
         content = content.replace("```javascript", "").replace("```js", "").replace("```", "")
+
     content = content.strip()
 
+    # FIX : supprime les contrats hallusinés AVANT d'ajouter les imports
+    content = _remove_fake_contracts(content)
+
+    # Garantit les imports de base
     if 'require("chai")' not in content and "require('chai')" not in content:
         content = 'const { expect } = require("chai");\n' + content
     if 'require("hardhat")' not in content and "require('hardhat')" not in content:
         content = 'const { ethers } = require("hardhat");\n' + content
+
+    print(f"[CleanJS] Résultat final : {content.count(chr(10)) + 1} lignes")
     return content
 
 
@@ -147,55 +225,34 @@ def _log_code(label: str, code: str) -> None:
 def generator_normal_node(state: dict) -> dict:
     """
     Nœud LangGraph : GENERATOR (première passe).
-    Utilise Codestral + RAG (avec cache) pour générer les tests Hardhat.
+
+    FIX : utilise GENERATOR_NORMAL_PROMPT (prompts.py) + get_code_llm() (llm.py)
+    au lieu de construire les messages manuellement.
+    Réutilise le rag_cache produit par test_designer_node si présent.
     """
     print("--- GENERATOR (NORMAL) ---")
 
     contract_code: str = state.get("contract_code", "")
     test_design: dict  = state.get("test_design", {})
-    contract_name      = _extract_contract_name(contract_code)
 
-    # RAG (avec cache)
+    # RAG (avec cache — si test_designer_node a déjà rempli rag_cache, pas de 2ème appel)
     erc_context, detected_ercs = _get_rag_context(state)
-    standards_label = ", ".join(detected_ercs) if detected_ercs else "Contrat générique"
 
-    system_prompt = f"""Tu es un expert Blockchain QA Engineer spécialisé en Hardhat + Ethers v6.
+    relevant_examples = erc_context
 
-CONTRAT : {contract_name}
-STANDARDS DÉTECTÉS : {standards_label}
+    llm   = get_code_llm()
+    chain = GENERATOR_NORMAL_PROMPT | llm | StrOutputParser()
 
-CONTEXTE ERC (RAG) :
-{erc_context}
-
-MISSION : Générer un fichier de tests Hardhat COMPLET et fonctionnel.
-
-RÈGLES ABSOLUES :
-1. Hardhat + Ethers v6 + Chai uniquement
-2. loadFixture de @nomicfoundation/hardhat-toolbox/network-helpers
-3. ethers.parseEther() / ethers.parseUnits() — jamais ethers.utils.*
-4. .waitForDeployment() — jamais .deployed()
-5. Reverts : expect(tx).to.be.revertedWith(...) ou revertedWithCustomError(...)
-6. Couvre : happy paths, edge cases (0, max), reverts, events
-7. Chaque describe() regroupe les tests par fonction
-8. RETOURNE UNIQUEMENT du code JavaScript pur — aucun markdown, aucune explication
-"""
-
-    user_prompt = f"""=== STRATÉGIE DE TESTS ===
-{json.dumps(test_design, indent=2, ensure_ascii=False)}
-
-=== CODE SOLIDITY ===
-{contract_code}
-"""
-
-    print("[Generator Normal] Appel Codestral…")
+    print("[Generator Normal] Appel Codestral via GENERATOR_NORMAL_PROMPT…")
     time.sleep(1)
 
     try:
-        response = _get_code_llm().invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
-        raw = response.content
+        raw: str = invoke_with_retry(chain, {
+            "erc_context":       erc_context,
+            "relevant_examples": relevant_examples,
+            "contract_code":     contract_code,
+            "test_design_json":  json.dumps(test_design, indent=2, ensure_ascii=False),
+        })
         print(f"[Generator Normal] Réponse brute : {len(raw)} caractères.")
     except Exception as exc:
         print(f"[Generator Normal] ❌ Erreur Codestral : {exc}")
@@ -217,7 +274,9 @@ RÈGLES ABSOLUES :
 def generator_corrector_node(state: dict) -> dict:
     """
     Nœud LangGraph : GENERATOR (correcteur).
-    Corrige les tests existants en s'appuyant sur le rapport de l'Analyser.
+
+    FIX : utilise GENERATOR_CORRECTOR_PROMPT (prompts.py) + get_code_llm() (llm.py)
+    au lieu de construire les messages manuellement.
     Réutilise le cache RAG — aucun appel RAG supplémentaire.
     """
     print("--- GENERATOR (CORRECTOR) ---")
@@ -225,7 +284,6 @@ def generator_corrector_node(state: dict) -> dict:
     contract_code: str    = state.get("contract_code", "")
     existing_code: str    = state.get("test_code", "")
     analyzer_report: dict = state.get("analyzer_report", {})
-    contract_name         = _extract_contract_name(contract_code)
 
     # Diagnostics
     if not existing_code or not existing_code.strip():
@@ -244,68 +302,28 @@ def generator_corrector_node(state: dict) -> dict:
 
     # Artefacts de débogage
     _save_artifact("base_code_before_correction.json", {"test_code": base_code})
-    _save_artifact("analyzer_report.json",  analyzer_report)
-    _save_artifact("failed_tests.json",     {"failed": failed_titles})
+    _save_artifact("analyzer_report.json",             analyzer_report)
+    _save_artifact("failed_tests.json",                {"failed": failed_titles})
 
     # RAG depuis le cache (pas de nouvel appel LLM)
     erc_context, detected_ercs = _get_rag_context(state)
-    standards_label = ", ".join(detected_ercs) if detected_ercs else "Contrat générique"
+    relevant_examples = erc_context
 
-    # Résumé des problèmes
-    missing     = analyzer_report.get("missing_coverage", {})
-    suggestions = analyzer_report.get("suggestions", [])
-    problems    = []
-    if failed_titles:
-        problems.append(f"Tests en échec :\n" + "\n".join(f"  - {t}" for t in failed_titles))
-    if missing.get("functions"):
-        problems.append("Fonctions non couvertes :\n" + "\n".join(f"  - {f}" for f in missing["functions"]))
-    if missing.get("branches"):
-        problems.append("Branches non couvertes :\n" + "\n".join(f"  - {b}" for b in missing["branches"]))
-    if missing.get("edge_cases"):
-        problems.append("Cas limites manquants :\n" + "\n".join(f"  - {e}" for e in missing["edge_cases"]))
-    if suggestions:
-        problems.append("Suggestions :\n" + "\n".join(f"  - {s}" for s in suggestions))
-    problems_text = "\n\n".join(problems) if problems else "Améliorer la couverture de branches (objectif ≥ 80%)."
+    llm   = get_code_llm()
+    chain = GENERATOR_CORRECTOR_PROMPT | llm | StrOutputParser()
 
-    system_prompt = f"""Tu es un Senior Web3 QA Engineer spécialisé en Hardhat + Ethers v6.
-
-CONTRAT : {contract_name}
-STANDARDS : {standards_label}
-
-CONTEXTE ERC :
-{erc_context}
-
-MISSION : Corriger et améliorer les tests Hardhat fournis.
-
-PROBLÈMES À CORRIGER :
-{problems_text}
-
-RÈGLES :
-1. Hardhat + Ethers v6 + Chai uniquement
-2. loadFixture de @nomicfoundation/hardhat-toolbox/network-helpers
-3. ethers.parseEther() / ethers.parseUnits() — jamais ethers.utils.*
-4. .waitForDeployment() — jamais .deployed()
-5. Garde tous les tests existants qui passent
-6. Ajoute les tests manquants signalés ci-dessus
-7. RETOURNE UNIQUEMENT du JavaScript pur — aucun markdown
-"""
-
-    user_prompt = f"""=== CODE DE TESTS ACTUEL ===
-{base_code}
-
-=== CODE SOLIDITY ===
-{contract_code}
-"""
-
-    print("[Generator Corrector] Appel Codestral…")
+    print("[Generator Corrector] Appel Codestral via GENERATOR_CORRECTOR_PROMPT…")
     time.sleep(1)
 
     try:
-        response = _get_code_llm().invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
-        raw = response.content
+        raw: str = invoke_with_retry(chain, {
+            "erc_context":       erc_context,
+            "relevant_examples": relevant_examples,
+            "contract_code":     contract_code,
+            "test_code":         base_code,
+            "failed_tests_json": json.dumps(failed_titles, ensure_ascii=False),
+            "analyzer_json":     json.dumps(analyzer_report, ensure_ascii=False),
+        })
         print(f"[Generator Corrector] Réponse brute : {len(raw)} caractères.")
     except Exception as exc:
         print(f"[Generator Corrector] ❌ Erreur Codestral : {exc}")
