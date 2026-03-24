@@ -22,7 +22,7 @@ import time
 from langchain_core.output_parsers import StrOutputParser
 
 from src.utils.prompts import GENERATOR_NORMAL_PROMPT, GENERATOR_CORRECTOR_PROMPT
-from src.utils.advanced_rag import AdvancedRAG
+from src.utils.naive_rag import NaiveRAG
 from src.utils.llm import get_code_llm, invoke_with_retry
 from src.config import OUTPUT_DIR
 
@@ -44,7 +44,7 @@ def _get_rag_context(state: dict) -> tuple[str, list[str]]:
         return cache["context"], cache["detected_ercs"]
 
     try:
-        rag    = AdvancedRAG(collection_name="erc_standards")
+        rag    = NaiveRAG(collection_name="erc_standards")
         result = rag.retrieve(state.get("contract_code", ""))
         context       = result.get("context", "Aucun contexte trouvé.")
         detected_ercs = result.get("detected_ercs", [])

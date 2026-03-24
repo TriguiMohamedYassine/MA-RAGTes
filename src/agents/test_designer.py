@@ -17,7 +17,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 from src.utils.prompts import TEST_DESIGNER_PROMPT
 from src.utils.llm import get_llm, invoke_with_retry
-from src.utils.advanced_rag import AdvancedRAG
+from src.utils.naive_rag import NaiveRAG
 from src.config import OUTPUT_DIR
 
 
@@ -42,7 +42,7 @@ def test_designer_node(state: dict) -> dict:
     # FIX : stocke le résultat complet dans rag_cache pour le partager avec generator_normal
     rag_cache: dict = {}
     try:
-        rag = AdvancedRAG(collection_name="erc_standards")
+        rag = NaiveRAG(collection_name="erc_standards")
         rag_result   = rag.retrieve(contract_code)
         erc_context  = rag_result.get("context", "Aucun standard détecté.")
         rag_cache    = {
