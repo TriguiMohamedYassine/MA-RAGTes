@@ -3,22 +3,36 @@ test_designer.py
 ----------------
 Agent LangGraph responsable de la conception de la stratégie de tests.
 
-Utilise le RAG ERC pour enrichir le contexte avant d'appeler le LLM,
+Construit un contexte local avant d'appeler le LLM,
 puis persiste le résultat dans OUTPUT_DIR/test_design.json.
-
-FIX : ajout d'un try/except avec fallback minimal (comme analyzer_node),
-      et stockage du rag_cache dans le state pour éviter un 2ème appel RAG
-      dans generator_normal_node.
 """
 
 import json
+import re
 
 from langchain_core.output_parsers import JsonOutputParser
 
 from src.utils.prompts import TEST_DESIGNER_PROMPT
 from src.utils.llm import get_llm, invoke_with_retry
-from src.utils.advanced_rag import AdvancedRAG
 from src.config import OUTPUT_DIR
+
+
+def _build_local_contract_context(contract_code: str) -> str:
+    """Construit un contexte utile a partir du contrat, sans retrieval externe."""
+    if not contract_code.strip():
+        return "Contexte local indisponible: contrat vide."
+
+    contract_match = re.search(r"\bcontract\s+(\w+)", contract_code)
+    contract_name = contract_match.group(1) if contract_match else "UnknownContract"
+
+    functions = re.findall(r"function\s+(\w+)\s*\(", contract_code)
+    functions_preview = ", ".join(functions[:12]) if functions else "Aucune fonction detectee"
+
+    return (
+        "Contexte local. "
+        f"Contrat: {contract_name}. "
+        f"Fonctions detectees: {functions_preview}."
+    )
 
 
 def test_designer_node(state: dict) -> dict:
@@ -32,27 +46,13 @@ def test_designer_node(state: dict) -> dict:
     Sorties ajoutées au state :
       - test_design  (dict)
       - erc_context  (str)
-      - rag_cache    (dict)  ← FIX : évite un 2ème appel RAG dans generator_normal_node
     """
     print("--- TEST DESIGNER ---")
 
     contract_code: str = state.get("contract_code", "")
 
-    # --- Récupération du contexte ERC via RAG ---
-    # FIX : stocke le résultat complet dans rag_cache pour le partager avec generator_normal
-    rag_cache: dict = {}
-    try:
-        rag = AdvancedRAG(collection_name="erc_standards")
-        rag_result   = rag.retrieve(contract_code)
-        erc_context  = rag_result.get("context", "Aucun standard détecté.")
-        rag_cache    = {
-            "context":       erc_context,
-            "detected_ercs": rag_result.get("detected_ercs", []),
-        }
-    except Exception as exc:
-        print(f"[Test Designer] RAG ERC échoué : {exc}")
-        erc_context = "Contexte ERC indisponible."
-        rag_cache   = {"context": erc_context, "detected_ercs": []}
+    # Contexte construit localement.
+    erc_context = _build_local_contract_context(contract_code)
 
     # --- Appel LLM ---
     llm    = get_llm()
@@ -83,9 +83,7 @@ def test_designer_node(state: dict) -> dict:
     except OSError as exc:
         print(f"[Test Designer] Impossible de sauvegarder test_design.json : {exc}")
 
-    # FIX : retourne rag_cache pour éviter un 2ème appel RAG dans generator_normal_node
     return {
         "test_design": result,
         "erc_context": erc_context,
-        "rag_cache":   rag_cache,
     }

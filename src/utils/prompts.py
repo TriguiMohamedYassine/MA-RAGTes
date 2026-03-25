@@ -26,9 +26,13 @@ _GLOBAL_RULES = """
 Tu es un expert Solidity, Hardhat, Mocha et test de smart contracts.
 
 Règles absolues :
-- Retourne du JSON strict (aucun texte en dehors du JSON)
 - Sois déterministe et structuré
 - N'hallucine pas de fonctions absentes du contrat
+"""
+
+_JSON_RULES = """
+FORMAT JSON OBLIGATOIRE :
+- Retourne du JSON strict (aucun texte en dehors du JSON)
 - Le JSON doit être parsable directement par Python json.loads()
 """
 
@@ -55,7 +59,7 @@ RÈGLES CRITIQUES pour le code généré :
 
 TEST_DESIGNER_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        _GLOBAL_RULES + """
+  _GLOBAL_RULES + _JSON_RULES + """
 OBJECTIF : Concevoir une stratégie de tests complète pour le contrat Solidity fourni.
 
 FORMAT DE SORTIE (JSON uniquement) :
@@ -78,7 +82,7 @@ FORMAT DE SORTIE (JSON uniquement) :
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-=== CONTEXTE STANDARDS ERC ===
+  === CONTEXTE CONTRAT ===
 {erc_context}
 
 === USER STORY / EXIGENCES ===
@@ -107,7 +111,7 @@ const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-=== 1. STANDARDS ERC ===
+  === 1. CONTEXTE CONTRAT ===
 {erc_context}
 
 === 2. EXEMPLES ET BONNES PRATIQUES ===
@@ -146,7 +150,7 @@ const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-=== 1. STANDARDS ERC ===
+  === 1. CONTEXTE CONTRAT ===
 {erc_context}
 
 === 2. EXEMPLES ET BONNES PRATIQUES ===
@@ -172,7 +176,7 @@ const {{ expect }} = require("chai");
 
 ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        _GLOBAL_RULES + _COVERAGE_RULES + """
+  _GLOBAL_RULES + _JSON_RULES + _COVERAGE_RULES + """
 OBJECTIF : Analyser les tests et identifier les échecs, les fonctions/branches
 non couvertes et les cas limites manquants.
 
@@ -204,7 +208,7 @@ Couverture   : {coverage_json}
 
 EVALUATOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
-        _GLOBAL_RULES + """
+  _GLOBAL_RULES + _JSON_RULES + """
 CRITÈRES pour relancer la génération (decision = "regenerate") :
   - Nombre de tests en échec > 0  ET  la cause est corrigeable (pas un contrat manquant)
   - Couverture de branches < 80 %

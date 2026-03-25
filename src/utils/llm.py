@@ -4,7 +4,7 @@ llm.py
 Fournit les factories LLM et les utilitaires de retry/stats.
 
 Deux modèles distincts :
-  - mistral-large-latest : raisonnement, analyse, JSON structuré  (Analyser, Evaluator, RAG)
+    - mistral-large-latest : raisonnement, analyse, JSON structuré  (Analyser, Evaluator)
   - codestral-latest     : génération de code JS/Solidity         (Generator)
 """
 

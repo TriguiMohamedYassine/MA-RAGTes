@@ -8,8 +8,7 @@ Deux nœuds :
   - generator_corrector_node : correction itérative guidée par l'Analyser
 
 Optimisations :
-  - Le contexte RAG est mis en cache dans le state (clé 'rag_cache') pour
-    éviter de refaire 3-4 appels LLM à chaque itération.
+    - Le contexte est transmis via le state (clé 'erc_context').
   - Modèle codestral-latest pour la génération de code JS.
   - FIX : utilise GENERATOR_NORMAL_PROMPT et GENERATOR_CORRECTOR_PROMPT
     définis dans prompts.py (cohérence avec le reste du pipeline).
@@ -22,37 +21,8 @@ import time
 from langchain_core.output_parsers import StrOutputParser
 
 from src.utils.prompts import GENERATOR_NORMAL_PROMPT, GENERATOR_CORRECTOR_PROMPT
-from src.utils.advanced_rag import AdvancedRAG
 from src.utils.llm import get_code_llm, invoke_with_retry
 from src.config import OUTPUT_DIR
-
-
-# ---------------------------------------------------------------------------
-# RAG avec cache dans le state
-# ---------------------------------------------------------------------------
-
-def _get_rag_context(state: dict) -> tuple[str, list[str]]:
-    """
-    Retourne (contexte_compressé, standards_détectés).
-
-    Si le state contient déjà 'rag_cache', le réutilise sans rappeler le RAG.
-    Sinon, exécute le pipeline RAG et stocke le résultat dans 'rag_cache'.
-    """
-    cache = state.get("rag_cache")
-    if cache:
-        print("[Generator] RAG servi depuis le cache.")
-        return cache["context"], cache["detected_ercs"]
-
-    try:
-        rag    = AdvancedRAG(collection_name="erc_standards")
-        result = rag.retrieve(state.get("contract_code", ""))
-        context       = result.get("context", "Aucun contexte trouvé.")
-        detected_ercs = result.get("detected_ercs", [])
-        print(f"[Generator] RAG OK — standards : {detected_ercs or ['Aucun']}")
-        return context, detected_ercs
-    except Exception as exc:
-        print(f"[Generator] RAG échoué : {exc}")
-        return "Aucun contexte RAG disponible.", []
 
 
 # ---------------------------------------------------------------------------
@@ -226,17 +196,15 @@ def generator_normal_node(state: dict) -> dict:
     """
     Nœud LangGraph : GENERATOR (première passe).
 
-    FIX : utilise GENERATOR_NORMAL_PROMPT (prompts.py) + get_code_llm() (llm.py)
+    Utilise GENERATOR_NORMAL_PROMPT (prompts.py) + get_code_llm() (llm.py)
     au lieu de construire les messages manuellement.
-    Réutilise le rag_cache produit par test_designer_node si présent.
     """
     print("--- GENERATOR (NORMAL) ---")
 
     contract_code: str = state.get("contract_code", "")
     test_design: dict  = state.get("test_design", {})
 
-    # RAG (avec cache — si test_designer_node a déjà rempli rag_cache, pas de 2ème appel)
-    erc_context, detected_ercs = _get_rag_context(state)
+    erc_context = state.get("erc_context", "Contexte local indisponible.")
 
     relevant_examples = erc_context
 
@@ -262,9 +230,7 @@ def generator_normal_node(state: dict) -> dict:
     _log_code("Generator Normal", test_code)
     _save_artifact("test_code.json", {"test_code": test_code})
 
-    # Stocke le cache RAG dans le state pour éviter de le recalculer
-    rag_cache = {"context": erc_context, "detected_ercs": detected_ercs}
-    return {"test_code": test_code, "rag_cache": rag_cache}
+    return {"test_code": test_code}
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +243,7 @@ def generator_corrector_node(state: dict) -> dict:
 
     FIX : utilise GENERATOR_CORRECTOR_PROMPT (prompts.py) + get_code_llm() (llm.py)
     au lieu de construire les messages manuellement.
-    Réutilise le cache RAG — aucun appel RAG supplémentaire.
+    Réutilise le contexte local via le state.
     """
     print("--- GENERATOR (CORRECTOR) ---")
 
@@ -305,8 +271,7 @@ def generator_corrector_node(state: dict) -> dict:
     _save_artifact("analyzer_report.json",             analyzer_report)
     _save_artifact("failed_tests.json",                {"failed": failed_titles})
 
-    # RAG depuis le cache (pas de nouvel appel LLM)
-    erc_context, detected_ercs = _get_rag_context(state)
+    erc_context = state.get("erc_context", "Contexte local indisponible.")
     relevant_examples = erc_context
 
     llm   = get_code_llm()

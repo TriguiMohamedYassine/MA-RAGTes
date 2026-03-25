@@ -29,7 +29,6 @@ class PipelineState(TypedDict, total=False):
     erc_context:         str
     test_design:         dict
     test_code:           str
-    rag_cache:           dict
     test_report:         dict
     coverage_report:     dict
     execution_summary:   dict

@@ -18,8 +18,6 @@ BASE_DIR: Path = Path(__file__).parent.parent.resolve()
 
 CONTRACTS_DIR: Path = BASE_DIR / "contracts"
 OUTPUT_DIR:    Path = BASE_DIR / "outputs"
-DATA_DIR:      Path = BASE_DIR / "data"
-VECTOR_DB_DIR: Path = DATA_DIR / "vector_db"
 
 # ---------------------------------------------------------------------------
 # Paramètres de l'application
