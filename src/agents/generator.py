@@ -1,18 +1,7 @@
 """
 generator.py
 ------------
-Agent LangGraph responsable de la génération et de la correction des tests JS.
-
-Deux nœuds :
-  - generator_normal_node    : première génération depuis le test_design
-  - generator_corrector_node : correction itérative guidée par l'Analyser
-
-Optimisations :
-  - Le contexte RAG est mis en cache dans le state (clé 'rag_cache') pour
-    éviter de refaire 3-4 appels LLM à chaque itération.
-  - Modèle codestral-latest pour la génération de code JS.
-  - FIX : utilise GENERATOR_NORMAL_PROMPT et GENERATOR_CORRECTOR_PROMPT
-    définis dans prompts.py (cohérence avec le reste du pipeline).
+Agent LangGraph responsable de la génération initiale des tests JS.
 """
 
 import json
@@ -21,7 +10,7 @@ import time
 
 from langchain_core.output_parsers import StrOutputParser
 
-from src.utils.prompts import GENERATOR_NORMAL_PROMPT, GENERATOR_CORRECTOR_PROMPT
+from src.utils.prompts import GENERATOR_NORMAL_PROMPT
 from src.utils.advanced_rag import AdvancedRAG
 from src.utils.llm import get_code_llm, invoke_with_retry
 from src.config import OUTPUT_DIR
@@ -186,18 +175,6 @@ def _extract_contract_name(contract_code: str) -> str:
     return match.group(1) if match else "Contract"
 
 
-def _prune_failing_tests(code: str, failed_titles: list) -> str:
-    if not code or not failed_titles:
-        return code
-    for title in failed_titles:
-        pattern = (
-            r"it\(\s*['\"]" + re.escape(title)
-            + r"['\"]\s*,\s*(?:async\s*)?(?:function\s*\([^)]*\)|\([^)]*\)\s*=>)\s*\{.*?\}\);\s*"
-        )
-        code = re.sub(pattern, "", code, flags=re.DOTALL)
-    return code
-
-
 def _save_artifact(filename: str, content) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUTPUT_DIR / filename
@@ -265,71 +242,3 @@ def generator_normal_node(state: dict) -> dict:
     # Stocke le cache RAG dans le state pour éviter de le recalculer
     rag_cache = {"context": erc_context, "detected_ercs": detected_ercs}
     return {"test_code": test_code, "rag_cache": rag_cache}
-
-
-# ---------------------------------------------------------------------------
-# Nœud 2 : Correction itérative
-# ---------------------------------------------------------------------------
-
-def generator_corrector_node(state: dict) -> dict:
-    """
-    Nœud LangGraph : GENERATOR (correcteur).
-
-    FIX : utilise GENERATOR_CORRECTOR_PROMPT (prompts.py) + get_code_llm() (llm.py)
-    au lieu de construire les messages manuellement.
-    Réutilise le cache RAG — aucun appel RAG supplémentaire.
-    """
-    print("--- GENERATOR (CORRECTOR) ---")
-
-    contract_code: str    = state.get("contract_code", "")
-    existing_code: str    = state.get("test_code", "")
-    analyzer_report: dict = state.get("analyzer_report", {})
-
-    # Diagnostics
-    if not existing_code or not existing_code.strip():
-        print("[Generator Corrector] ⚠️  test_code vide dans le state.")
-    else:
-        print(f"[Generator Corrector] Code existant : {existing_code.count(chr(10)) + 1} lignes.")
-
-    if not analyzer_report:
-        print("[Generator Corrector] ⚠️  analyzer_report vide.")
-
-    # Supprime les tests cassés
-    failures      = analyzer_report.get("failures", [])
-    failed_titles = list({f["test"] for f in failures if isinstance(f, dict) and f.get("test")})
-    base_code     = _prune_failing_tests(existing_code, failed_titles)
-    print(f"[Generator Corrector] {len(failed_titles)} test(s) supprimé(s) avant correction.")
-
-    # Artefacts de débogage
-    _save_artifact("base_code_before_correction.json", {"test_code": base_code})
-    _save_artifact("analyzer_report.json",             analyzer_report)
-    _save_artifact("failed_tests.json",                {"failed": failed_titles})
-
-    # RAG depuis le cache (pas de nouvel appel LLM)
-    erc_context, detected_ercs = _get_rag_context(state)
-    relevant_examples = erc_context
-
-    llm   = get_code_llm()
-    chain = GENERATOR_CORRECTOR_PROMPT | llm | StrOutputParser()
-
-    print("[Generator Corrector] Appel Codestral via GENERATOR_CORRECTOR_PROMPT…")
-    time.sleep(1)
-
-    try:
-        raw: str = invoke_with_retry(chain, {
-            "erc_context":       erc_context,
-            "relevant_examples": relevant_examples,
-            "contract_code":     contract_code,
-            "test_code":         base_code,
-            "failed_tests_json": json.dumps(failed_titles, ensure_ascii=False),
-            "analyzer_json":     json.dumps(analyzer_report, ensure_ascii=False),
-        })
-        print(f"[Generator Corrector] Réponse brute : {len(raw)} caractères.")
-    except Exception as exc:
-        print(f"[Generator Corrector] ❌ Erreur Codestral : {exc}")
-        raw = existing_code
-
-    corrected_code = _normalize_ethers_v6(_clean_js_output(raw))
-    _log_code("Generator Corrector", corrected_code)
-
-    return {"test_code": corrected_code}

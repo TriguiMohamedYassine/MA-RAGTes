@@ -7,7 +7,7 @@ Convention : les accolades littérales dans les templates ChatPromptTemplate
 doivent être doublées ({{ }}) pour ne pas être interprétées comme des
 variables de substitution.
 
-FIX : GENERATOR_NORMAL_PROMPT et GENERATOR_CORRECTOR_PROMPT demandent
+FIX : GENERATOR_NORMAL_PROMPT demande
 désormais du JS brut (plus de JSON wrapper) pour éviter les problèmes
 de parsing chez Codestral.
 """
@@ -118,51 +118,6 @@ const {{ expect }} = require("chai");
 
 === 4. STRATÉGIE DE TESTS (JSON) ===
 {test_design_json}
-"""),
-])
-
-# ---------------------------------------------------------------------------
-# GENERATOR — correcteur / itération
-# FIX : demande du JS brut directement, plus de JSON wrapper
-# ---------------------------------------------------------------------------
-
-GENERATOR_CORRECTOR_PROMPT = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(
-        _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
-OBJECTIF : Corriger les tests JS existants pour les faire passer et améliorer
-la couverture d'après le rapport de l'Analyser.
-
-Règles supplémentaires :
-- Garde tous les tests existants qui passent
-- Corrige uniquement les tests en échec listés dans le rapport
-- Ajoute les tests manquants signalés dans le rapport
-- Ne génère PAS de nouveaux contrats Solidity auxiliaires dans les tests
-
-FORMAT DE SORTIE :
-Retourne UNIQUEMENT le code JavaScript brut corrigé et complet,
-sans aucun texte avant ou après, sans balises Markdown, sans JSON wrapper.
-Commence directement par :
-const {{ expect }} = require("chai");
-"""
-    ),
-    HumanMessagePromptTemplate.from_template("""
-=== 1. STANDARDS ERC ===
-{erc_context}
-
-=== 2. EXEMPLES ET BONNES PRATIQUES ===
-{relevant_examples}
-
-=== 3. CONTRAT SOLIDITY ===
-{contract_code}
-
-=== 4. CODE DE TESTS ACTUEL ===
-{test_code}
-
-=== 5. TESTS EN ÉCHEC ===
-{failed_tests_json}
-
-=== 6. RAPPORT DE L'ANALYSER ===
-{analyzer_json}
 """),
 ])
 

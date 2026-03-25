@@ -1,22 +1,14 @@
-"""
-orchestrator.py
----------------
-Construit et retourne le graphe LangGraph du pipeline de génération de tests.
-
-Ce module est le chef d'orchestre : il relie tous les nœuds agents et définit
-les conditions de routage (stop / regenerate).
-"""
+"""Construit le graphe LangGraph du pipeline en passe unique (sans boucle)."""
 
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
 
 from src.agents.test_designer  import test_designer_node
-from src.agents.generator      import generator_normal_node, generator_corrector_node
+from src.agents.generator      import generator_normal_node
 from src.agents.executor       import executor_node
 from src.agents.analyzer       import analyzer_node
 from src.agents.evaluator      import evaluator_node
-from src.config                import MAX_RETRIES
 
 
 # ---------------------------------------------------------------------------
@@ -37,24 +29,6 @@ class PipelineState(TypedDict, total=False):
     evaluation_decision: str
     evaluation_reason:   str
     iterations:          int
-    prev_score:          float   # FIX : score de l'itération précédente pour détection de stagnation
-
-
-# ---------------------------------------------------------------------------
-# Helpers : calcul du score composite
-# ---------------------------------------------------------------------------
-
-def _compute_score(state: PipelineState) -> float:
-    """
-    Score composite = (tests passés × 10) + coverage statements.
-    Utilisé pour détecter la stagnation entre deux itérations.
-    """
-    summary  = state.get("execution_summary", {})
-    coverage = summary.get("coverage", {})
-    return (
-        summary.get("passed", 0) * 10
-        + coverage.get("statements", 0)
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -63,53 +37,12 @@ def _compute_score(state: PipelineState) -> float:
 
 def _route_after_evaluation(state: PipelineState) -> str:
     """
-    Retourne ``"increment"`` (→ corrector) si le pipeline doit régénérer, ``END`` sinon.
-
-    FIX : arrêt précoce par stagnation — si le score ne progresse pas entre
-    deux itérations consécutives (à partir de l'itération 2), on force END
-    pour éviter de boucler inutilement jusqu'à MAX_RETRIES.
+    Pipeline en passe unique : toujours arrêter après l'évaluation.
     """
-    decision   = state.get("evaluation_decision", "stop")
-    iterations = state.get("iterations", 0)
-
     _print_execution_summary(state)
 
-    # Arrêt forcé sur limite max
-    if iterations >= MAX_RETRIES:
-        print(f"[Orchestrator] ⛔ Limite de {MAX_RETRIES} itérations atteinte. Arrêt forcé.")
-        return END
-
-    # FIX : arrêt précoce par stagnation (à partir de l'itération 2)
-    if decision == "regenerate" and iterations >= 2:
-        curr_score = _compute_score(state)
-        prev_score = state.get("prev_score", -1.0)
-        if curr_score <= prev_score:
-            print(
-                f"[Orchestrator] ⛔ Stagnation détectée "
-                f"(score courant={curr_score:.1f} ≤ précédent={prev_score:.1f}). "
-                f"Arrêt forcé après {iterations} itération(s)."
-            )
-            return END
-
-    if decision == "regenerate":
-        return "increment"
-
-    print(f"[Orchestrator] ✅ Critères satisfaits après {iterations} itération(s). Arrêt.")
+    print("[Orchestrator] ✅ Exécution terminée en passe unique.")
     return END
-
-
-def _increment_iterations(state: PipelineState) -> dict:
-    """
-    Incrémente le compteur d'itérations et sauvegarde le score courant
-    pour permettre la détection de stagnation à l'itération suivante.
-    """
-    new_count  = state.get("iterations", 0) + 1
-    curr_score = _compute_score(state)
-    print(
-        f"[Orchestrator] 🔁 Itération {new_count}/{MAX_RETRIES} "
-        f"— score={curr_score:.1f} — lancement de la correction…"
-    )
-    return {"iterations": new_count, "prev_score": curr_score}
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +52,6 @@ def _increment_iterations(state: PipelineState) -> dict:
 def _print_execution_summary(state: PipelineState) -> None:
     """Affiche dans le terminal un résumé lisible des résultats Hardhat."""
     summary  = state.get("execution_summary", {})
-    decision = state.get("evaluation_decision", "?")
     reason   = state.get("evaluation_reason", "")
     coverage = summary.get("coverage", {})
 
@@ -140,7 +72,6 @@ def _print_execution_summary(state: PipelineState) -> None:
     print(f"  Coverage statements : {stmts:.1f} %")
     print(f"  Coverage branches   : {branches:.1f} %")
     print(f"  Coverage functions  : {functions:.1f} %")
-    print(f"  Décision évaluateur : {'🔁 REGENERATE' if decision == 'regenerate' else '🛑 STOP'}")
     if reason:
         print(f"  Raison              : {reason}")
     print("─" * 50 + "\n")
@@ -155,9 +86,7 @@ def build_graph() -> StateGraph:
     Construit et compile le graphe LangGraph du pipeline.
 
     Flux principal :
-        test_designer → generator_normal → executor → analyzer → evaluator
-                                ↑                                      |
-                                └──────── corrector ←──── (regenerate) ┘
+        test_designer → generator_normal → executor → analyzer → evaluator → END
     """
     graph = StateGraph(PipelineState)
 
@@ -167,8 +96,6 @@ def build_graph() -> StateGraph:
     graph.add_node("executor",         executor_node)
     graph.add_node("analyzer",         analyzer_node)
     graph.add_node("evaluator",        evaluator_node)
-    graph.add_node("increment",        _increment_iterations)
-    graph.add_node("corrector",        generator_corrector_node)
 
     # --- Arêtes du flux principal ---
     graph.set_entry_point("test_designer")
@@ -181,11 +108,7 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges(
         "evaluator",
         _route_after_evaluation,
-        {"increment": "increment", END: END},
+        {END: END},
     )
-
-    # --- Boucle de correction ---
-    graph.add_edge("increment", "corrector")
-    graph.add_edge("corrector", "executor")
 
     return graph.compile()
