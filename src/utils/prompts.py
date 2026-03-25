@@ -171,6 +171,37 @@ const {{ expect }} = require("chai");
 ])
 
 # ---------------------------------------------------------------------------
+# SINGLE-AGENT BASELINE — one-shot generation (LLM-only)
+# ---------------------------------------------------------------------------
+
+SINGLE_AGENT_BASELINE_PROMPT = ChatPromptTemplate.from_messages([
+  SystemMessagePromptTemplate.from_template(
+    _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
+OBJECTIF : Générer en une seule passe le fichier de tests JavaScript complet
+pour le contrat Solidity fourni.
+
+Contraintes baseline :
+- Une seule génération
+- Aucun retrieval externe
+- Aucune boucle de correction
+
+FORMAT DE SORTIE :
+Retourne UNIQUEMENT le code JavaScript brut, sans texte avant/après,
+sans balises Markdown, sans JSON wrapper.
+Commence directement par :
+const {{ expect }} = require("chai");
+"""
+  ),
+  HumanMessagePromptTemplate.from_template("""
+=== USER STORY / EXIGENCES ===
+{user_story}
+
+=== CONTRAT SOLIDITY ===
+{contract_code}
+"""),
+])
+
+# ---------------------------------------------------------------------------
 # ANALYZER
 # ---------------------------------------------------------------------------
 
