@@ -26,6 +26,7 @@ from src.config                import MAX_RETRIES
 class PipelineState(TypedDict, total=False):
     contract_code:       str
     user_story:          str
+    source_filename:     str   # nom du fichier .sol original (ex: "SimpleSwap.sol")
     erc_context:         str
     test_design:         dict
     test_code:           str
@@ -60,42 +61,40 @@ def _compute_score(state: PipelineState) -> float:
 # ---------------------------------------------------------------------------
 # Condition de routage après l'Évaluateur
 # ---------------------------------------------------------------------------
-
 def _route_after_evaluation(state: PipelineState) -> str:
     """
-    Retourne ``"increment"`` (→ corrector) si le pipeline doit régénérer, ``END`` sinon.
-
-    FIX : arrêt précoce par stagnation — si le score ne progresse pas entre
-    deux itérations consécutives (à partir de l'itération 2), on force END
-    pour éviter de boucler inutilement jusqu'à MAX_RETRIES.
+    Détermine si le pipeline doit continuer ou s'arrêter, 
+    et affiche un bilan final unique et clair.
     """
     decision   = state.get("evaluation_decision", "stop")
     iterations = state.get("iterations", 0)
 
+    # Affichage du tableau de bord des résultats (Tests + Coverage)
     _print_execution_summary(state)
 
-    # Arrêt forcé sur limite max
-    if iterations >= MAX_RETRIES:
-        print(f"[Orchestrator] ⛔ Limite de {MAX_RETRIES} itérations atteinte. Arrêt forcé.")
-        return END
+    # --- Logique de détermination de l'arrêt ---
+    stop_reason = None
 
-    # FIX : arrêt précoce par stagnation (à partir de l'itération 2)
-    if decision == "regenerate" and iterations >= 2:
+    if iterations >= MAX_RETRIES:
+        stop_reason = f"⛔ Limite de {MAX_RETRIES} itérations atteinte."
+    
+    elif decision == "regenerate" and iterations >= 2:
         curr_score = _compute_score(state)
         prev_score = state.get("prev_score", -1.0)
         if curr_score <= prev_score:
-            print(
-                f"[Orchestrator] ⛔ Stagnation détectée "
-                f"(score courant={curr_score:.1f} ≤ précédent={prev_score:.1f}). "
-                f"Arrêt forcé après {iterations} itération(s)."
-            )
-            return END
+            stop_reason = f"⛔ Arrêt par stagnation (Score stable à {curr_score:.1f})."
 
-    if decision == "regenerate":
-        return "increment"
+    elif decision == "stop":
+        stop_reason = "✅ Critères satisfaits ou arrêt structurel."
 
-    print(f"[Orchestrator] ✅ Critères satisfaits après {iterations} itération(s). Arrêt.")
-    return END
+    # --- Sortie du graphe ---
+    if stop_reason:
+        print(f"\n[FIN DU PIPELINE] {stop_reason}")
+        print(f"Nombre total d'itérations parcourues : {iterations}\n")
+        return END
+
+    # Sinon, on continue vers l'incrémentation
+    return "increment"
 
 
 def _increment_iterations(state: PipelineState) -> dict:

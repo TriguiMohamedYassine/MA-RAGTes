@@ -27,15 +27,60 @@ from src.config import BASE_DIR, CONTRACTS_DIR, OUTPUT_DIR
 # Helpers : fichiers
 # ---------------------------------------------------------------------------
 
-def _ensure_contract_file(contract_code: str) -> str:
-    """Écrit le contrat dans CONTRACTS_DIR et retourne son chemin absolu."""
+def _extract_main_contract_name(contract_code: str) -> str:
+    """
+    Extrait le nom du contrat principal depuis le code Solidity.
+
+    Stratégie :
+      1. Ignore les interfaces (interface Xxx) et les contrats abstraits (abstract contract Xxx).
+      2. Parmi les contrats concrets restants, prend le DERNIER — il s'agit généralement
+         du contrat principal qui hérite/compose les autres.
+      3. Fallback sur le premier match brut si aucun contrat concret n'est trouvé.
+    """
+    if not contract_code:
+        return "GeneratedContract"
+
+    # Retire les commentaires pour éviter les faux positifs
+    code = re.sub(r"/\*.*?\*/", "", contract_code, flags=re.DOTALL)
+    code = re.sub(r"//.*$", "", code, flags=re.MULTILINE)
+
+    # Contrats concrets uniquement (ni interface, ni abstract)
+    concrete = re.findall(
+        r"(?<!abstract\s)(?<!interface\s)\bcontract\s+(\w+)",
+        code,
+    )
+    # Filtre plus explicite : exclure les lignes précédées de abstract ou interface
+    concrete_filtered = []
+    for m in re.finditer(r"\b(abstract\s+contract|interface|contract)\s+(\w+)", code):
+        keyword = m.group(1).strip()
+        name    = m.group(2)
+        if keyword == "contract":          # contrat concret
+            concrete_filtered.append(name)
+
+    if concrete_filtered:
+        return concrete_filtered[-1]       # dernier contrat concret = contrat principal
+
+    # Fallback : premier match brut
+    fallback = re.search(r"\bcontract\s+(\w+)", code)
+    return fallback.group(1) if fallback else "GeneratedContract"
+
+
+def _ensure_contract_file(contract_code: str, source_filename: str | None = None) -> str:
+    """
+    Écrit le contrat dans CONTRACTS_DIR et retourne son chemin absolu.
+
+    Si ``source_filename`` est fourni (ex: "SimpleSwap.sol"), il est utilisé
+    directement comme nom de fichier — ce qui garantit la cohérence entre le
+    fichier écrit et le nom attendu par Hardhat.
+    Sinon, le nom est extrait du code Solidity via _extract_main_contract_name.
+    """
     CONTRACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    contract_name = "GeneratedContract"
-    if contract_code:
-        match = re.search(r"\bcontract\s+(\w+)", contract_code)
-        if match:
-            contract_name = match.group(1)
+    if source_filename:
+        # Utilise le nom du fichier source original (sans chemin)
+        contract_name = re.sub(r"\.sol$", "", source_filename, flags=re.IGNORECASE)
+    else:
+        contract_name = _extract_main_contract_name(contract_code)
 
     contract_path = CONTRACTS_DIR / f"{contract_name}.sol"
     contract_path.write_text(contract_code or "", encoding="utf-8")
@@ -256,8 +301,9 @@ def executor_node(state: dict) -> dict:
     """
     print("--- EXECUTOR ---")
 
-    contract_code: str = state.get("contract_code", "")
-    test_code: str     = state.get("test_code", "")
+    contract_code: str     = state.get("contract_code", "")
+    test_code: str         = state.get("test_code", "")
+    source_filename: str   = state.get("source_filename", "")  # nom du fichier .sol original
 
     # Écriture des fichiers sources
     (BASE_DIR / "test").mkdir(parents=True, exist_ok=True)
@@ -267,7 +313,7 @@ def executor_node(state: dict) -> dict:
     print(f"[Executor] Test écrit : {test_path} ({lines} lignes)")
 
     _clean_hardhat_build_artifacts()
-    contract_path        = _ensure_contract_file(contract_code)
+    contract_path        = _ensure_contract_file(contract_code, source_filename or None)
     coverage_sources_dir = _prepare_single_contract_sources(contract_path)
     print(f"[Executor] Contrat : {contract_path}")
     print(f"[Executor] Sources coverage : {coverage_sources_dir}")

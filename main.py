@@ -147,9 +147,10 @@ def main() -> None:
 
     # --- Exécution du pipeline ---
     initial_state = {
-        "contract_code": contract_code,
-        "user_story":    user_story,
-        "iterations":    0,
+        "contract_code":   contract_code,
+        "user_story":      user_story,
+        "source_filename": contract_path.name,  # ex: "SimpleSwap.sol"
+        "iterations":      0,
     }
 
     print("[Main] Démarrage du pipeline…\n")

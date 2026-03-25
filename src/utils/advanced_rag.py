@@ -42,12 +42,22 @@ def _strip_markdown_fences(text: str) -> str:
 # Patterns de détection ERC
 # ---------------------------------------------------------------------------
 
+# Patterns de détection : le contrat IMPLÉMENTE le standard (pas seulement l'utilise).
+# Règle : on cherche "contract Xxx is ... ERC20/IERC20" ou l'héritage explicite.
+# On évite le faux positif "interface IERC20 { ... }" ou "IERC20(token).transfer()"
+# qui signifie que le contrat CONSOMME le standard sans l'implémenter.
 _ERC_PATTERNS: dict[str, list[str]] = {
-    "ERC20":   [r"function\s+transfer\s*\(", r"ERC20",  r"IERC20"],
-    "ERC721":  [r"function\s+ownerOf\s*\(",  r"ERC721", r"IERC721"],
-    "ERC1155": [r"function\s+balanceOfBatch\s*\(", r"ERC1155", r"IERC1155"],
-    "ERC777":  [r"function\s+send\s*\(",     r"ERC777", r"IERC777"],
-    "ERC4626": [r"function\s+deposit\s*\(",  r"ERC4626", r"IERC4626"],
+    # Le contrat hérite ou déclare explicitement le standard
+    "ERC20":   [r"is\s+(?:[\w,\s]*\s)?(?:ERC20|IERC20)\b",
+                r"contract\s+\w+[^{]*\bERC20\b"],
+    "ERC721":  [r"is\s+(?:[\w,\s]*\s)?(?:ERC721|IERC721)\b",
+                r"contract\s+\w+[^{]*\bERC721\b"],
+    "ERC1155": [r"is\s+(?:[\w,\s]*\s)?(?:ERC1155|IERC1155)\b",
+                r"contract\s+\w+[^{]*\bERC1155\b"],
+    "ERC777":  [r"is\s+(?:[\w,\s]*\s)?(?:ERC777|IERC777)\b",
+                r"contract\s+\w+[^{]*\bERC777\b"],
+    "ERC4626": [r"is\s+(?:[\w,\s]*\s)?(?:ERC4626|IERC4626)\b",
+                r"contract\s+\w+[^{]*\bERC4626\b"],
 }
 
 

@@ -1,49 +1,52 @@
-🪙 User Stories Principales (Core Features)
-US1 : Initialisation de la supply (Déploiement)
+# MetaCoin - Specifications fonctionnelles
 
-En tant que déployeur du contrat (créateur),
+## Portee
+Ce document decrit le comportement attendu du contrat `MetaCoin` dans `MetaCoin.sol`.
 
-Je souhaite recevoir un solde initial de 10 000 MetaCoins lors de la création du contrat,
+## User stories principales
 
-Afin de posséder la réserve initiale de tokens pour la distribuer aux futurs utilisateurs.
+### US1 - Allocation initiale
+En tant que deployeeur,
+je veux recevoir un solde initial de `10000` tokens a la creation,
+afin de disposer d'une reserve initiale.
 
-US2 : Transfert de tokens
+Critere d'acceptation:
+- Au deploiement, `balances[msg.sender] == 10000`.
 
-En tant qu' utilisateur possédant des MetaCoins,
+### US2 - Transfert de tokens
+En tant qu'utilisateur detenant des tokens,
+je veux envoyer des tokens a une autre adresse,
+afin de transferer de la valeur.
 
-Je souhaite pouvoir envoyer un montant précis de mes pièces à une autre adresse (sendCoin),
+Critere d'acceptation:
+- `sendCoin(receiver, amount)` diminue le solde de l'expediteur de `amount`.
+- `sendCoin(receiver, amount)` augmente le solde du receveur de `amount`.
+- L'evenement `Transfer(from, to, value)` est emis.
+- La fonction retourne `true` quand le transfert reussit.
 
-Afin de transférer de la valeur ou payer un autre utilisateur.
+### US3 - Protection contre solde insuffisant
+En tant que systeme,
+je veux refuser les transferts superieurs au solde disponible,
+afin de proteger l'integrite des soldes.
 
-US3 : Vérification du solde (Consultation)
+Critere d'acceptation:
+- Si `balances[msg.sender] < amount`, `sendCoin` revert avec `"Solde insuffisant"`.
 
-En tant que n'importe quel utilisateur ou application tierce,
+### US4 - Consultation des soldes
+En tant qu'utilisateur ou application tierce,
+je veux lire le solde d'une adresse,
+afin de verifier les fonds disponibles.
 
-Je souhaite pouvoir consulter le solde exact de n'importe quelle adresse (getBalance),
+Critere d'acceptation:
+- `getBalance(addr)` retourne `balances[addr]`.
+- `getBalanceInEth(addr)` retourne la meme valeur que `getBalance(addr)`.
 
-Afin de savoir combien de MetaCoins je possède ou combien en possède un autre utilisateur.
+## Notes importantes
+- Le contrat n'implemente pas ERC20 complet; il s'agit d'une logique simple basee sur un mapping interne.
+- `getBalanceInEth` est un alias de compatibilite qui ne fait aucune conversion.
 
-🛡️ User Stories de Sécurité et d'Intégration
-US4 : Protection contre les doubles dépenses / soldes négatifs
-
-En tant que système (règle métier),
-
-Je souhaite qu'un transfert soit rejeté avec le message "Solde insuffisant" si l'expéditeur essaie d'envoyer plus de MetaCoins qu'il n'en possède,
-
-Afin de garantir l'intégrité de l'économie du token et empêcher la création de monnaie à partir de rien.
-
-US5 : Traçabilité des transactions (Événements)
-
-En tant que développeur front-end ou observateur de la blockchain,
-
-Je souhaite qu'un événement (Transfer) soit émis à chaque fois qu'un transfert réussit (contenant l'expéditeur, le destinataire et le montant),
-
-Afin de pouvoir écouter le réseau et mettre à jour l'interface utilisateur (UI) ou l'historique des transactions en temps réel.
-
-US6 : Compatibilité d'interface (Legacy/Alias)
-
-En tant que service tiers utilisant le contrat,
-
-Je souhaite pouvoir appeler la fonction getBalanceInEth pour obtenir mon solde exact,
-
-Afin de maintenir la compatibilité avec d'anciens systèmes ou interfaces qui s'attendent à l'existence de cette fonction (même si la logique de conversion *2 a été retirée).
+## Cas de tests minimaux recommandes
+- Verification de l'allocation initiale au deployeur.
+- Transfert valide et verification de l'evenement `Transfer`.
+- Revert sur transfert au-dela du solde.
+- Verification que `getBalanceInEth(addr) == getBalance(addr)`.
