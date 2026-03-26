@@ -11,8 +11,6 @@ import json
 import re
 from pathlib import Path
 
-from langchain_core.output_parsers import StrOutputParser
-
 from src.utils.prompts import SINGLE_AGENT_BASELINE_PROMPT
 from src.utils.llm import get_code_llm, invoke_with_retry
 from src.config import BASE_DIR, OUTPUT_DIR
@@ -89,13 +87,14 @@ def single_agent_baseline_node(state: dict) -> dict:
     print("--- SINGLE AGENT BASELINE ---")
 
     llm = get_code_llm()
-    chain = SINGLE_AGENT_BASELINE_PROMPT | llm | StrOutputParser()
+    chain = SINGLE_AGENT_BASELINE_PROMPT | llm
 
     try:
-        raw: str = invoke_with_retry(chain, {
+        llm_result = invoke_with_retry(chain, {
             "contract_code": state.get("contract_code", ""),
             "user_story": state.get("user_story", ""),
         })
+        raw = str(getattr(llm_result, "content", "") or "")
     except Exception as exc:
         print(f"[Baseline] LLM error: {exc}")
         raw = ""
