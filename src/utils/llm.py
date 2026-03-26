@@ -24,16 +24,43 @@ load_dotenv()
 _LLM_STATS: dict[str, Any] = {
     "calls": 0,
     "total_time_seconds": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
 }
 
 
 def reset_llm_stats() -> None:
     _LLM_STATS["calls"] = 0
     _LLM_STATS["total_time_seconds"] = 0.0
+    _LLM_STATS["prompt_tokens"] = 0
+    _LLM_STATS["completion_tokens"] = 0
+    _LLM_STATS["total_tokens"] = 0
 
 
 def get_llm_stats() -> dict[str, Any]:
     return dict(_LLM_STATS)
+
+
+def _extract_usage_tokens(result: Any) -> tuple[int, int, int]:
+    """
+    Extrait les tokens prompt/completion/total depuis la reponse LLM.
+    Supporte plusieurs formats de metadata selon le provider.
+    """
+    usage = getattr(result, "usage_metadata", None)
+
+    if not usage and hasattr(result, "response_metadata"):
+        response_meta = getattr(result, "response_metadata", {}) or {}
+        usage = response_meta.get("usage") or response_meta.get("token_usage")
+
+    if not isinstance(usage, dict):
+        return (0, 0, 0)
+
+    prompt_tokens = int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
+    completion_tokens = int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
+    total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
+
+    return (prompt_tokens, completion_tokens, total_tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +136,11 @@ def invoke_with_retry(
 
             _LLM_STATS["calls"] += 1
             _LLM_STATS["total_time_seconds"] += elapsed
+
+            prompt_tokens, completion_tokens, total_tokens = _extract_usage_tokens(result)
+            _LLM_STATS["prompt_tokens"] += prompt_tokens
+            _LLM_STATS["completion_tokens"] += completion_tokens
+            _LLM_STATS["total_tokens"] += total_tokens
 
             return result
 

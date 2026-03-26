@@ -16,14 +16,14 @@ load_dotenv()
 
 BASE_DIR: Path = Path(__file__).parent.parent.resolve()
 
-CONTRACTS_DIR: Path = BASE_DIR / "contracts"
+CONTRACTS_DIR: Path = BASE_DIR / "contracts" 
 OUTPUT_DIR:    Path = BASE_DIR / "outputs"
 
 # ---------------------------------------------------------------------------
 # Paramètres de l'application
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONTRACT_NAME: str = "CrowdFunding"
+DEFAULT_CONTRACT_NAME: str = "MetaCoin"
 MAX_RETRIES: int = 7
 
 # ---------------------------------------------------------------------------
