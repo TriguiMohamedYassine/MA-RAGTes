@@ -7,6 +7,20 @@ Agent LangGraph responsable de la décision stop / regenerate.
 from __future__ import annotations
 
 
+def _has_rate_limit_signal(state: dict) -> bool:
+    test_design = state.get("test_design", {}) or {}
+    analyzer = state.get("analyzer_report", {}) or {}
+    reason = state.get("evaluation_reason", "") or ""
+
+    haystack = [
+        str(test_design.get("error", "")),
+        str(analyzer),
+        str(reason),
+    ]
+    blob = "\n".join(haystack).lower()
+    return ("429" in blob) or ("rate limit" in blob) or ("rate_limited" in blob)
+
+
 def _coverage_totals_from_report(coverage_report: dict) -> tuple[int, int, int]:
     """
     Retourne (statements_total, branches_total, functions_total).
@@ -43,9 +57,11 @@ def evaluator_node(state: dict) -> dict:
 
     summary = state.get("execution_summary", {}) or {}
     coverage = summary.get("coverage", {}) or {}
+    total = int(summary.get("total", 0) or 0)
     failed = int(summary.get("failed", 0) or 0)
     stmts_pct = float(coverage.get("statements", 0) or 0)
     branches_pct = float(coverage.get("branches", 0) or 0)
+    rate_limited = _has_rate_limit_signal(state)
 
     coverage_report = state.get("coverage_report", {}) or {}
     _stmts_total, branches_total, _funcs_total = _coverage_totals_from_report(coverage_report)
@@ -54,10 +70,29 @@ def evaluator_node(state: dict) -> dict:
     # - Si des tests échouent, on continue.
     # - La contrainte branches>=80 n'est appliquée que si le contrat a réellement des branches.
     # - Si aucun test échoue et les seuils applicables sont satisfaits, on stop.
-    if failed > 0:
+    if total == 0:
+        decision = "stop"
+        reason = "Aucun test exécuté — arrêt préventif pour éviter une boucle de régénération vide."
+    elif rate_limited:
+        decision = "stop"
+        reason = "API rate-limited (429) détectée — arrêt préventif, relancer après refroidissement quota."
+    elif failed > 0:
         decision = "regenerate"
         reason = f"{failed} test(s) en échec — correction des tests nécessaire."
     else:
+        # Arrêt générique robuste : si tous les tests passent et la couverture
+        # des instructions est déjà élevée, éviter des itérations coûteuses.
+        if stmts_pct >= 90:
+            decision = "stop"
+            reason = (
+                "Tous les tests passent et la couverture statements est élevée "
+                f"({stmts_pct:.1f}%). Arrêt pour éviter une régénération inutile."
+            )
+            return {
+                "evaluation_decision": decision,
+                "evaluation_reason": reason,
+            }
+
         statements_ok = stmts_pct >= 85
         branches_required = branches_total > 0
         branches_ok = (branches_pct >= 80) if branches_required else True

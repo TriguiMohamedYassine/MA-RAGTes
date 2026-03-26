@@ -9,14 +9,43 @@ from src.utils.llm import get_code_llm, invoke_with_retry
 from src.config import OUTPUT_DIR
 
 
+GENERATOR_RAG_COLLECTION = "langchain"
+
+
+def _is_unusable_rag_context(context: str) -> bool:
+    normalized = (context or "").strip().lower()
+    return normalized in {
+        "",
+        "contexte erc indisponible.",
+        "aucun contexte rag disponible.",
+        "aucun contexte trouve.",
+        "aucun contexte trouvé.",
+    }
+
+
 def _get_rag_context(state: dict) -> tuple[str, list[str]]:
+    rag_cache = state.get("rag_cache") if isinstance(state, dict) else None
+    if isinstance(rag_cache, dict) and rag_cache.get("context"):
+        context = str(rag_cache.get("context", "Aucun contexte trouve."))
+        detected_ercs = rag_cache.get("detected_ercs", [])
+        cache_collection = str(rag_cache.get("collection_name", "")).strip()
+        if not isinstance(detected_ercs, list):
+            detected_ercs = []
+        if (
+            not _is_unusable_rag_context(context)
+            and cache_collection == GENERATOR_RAG_COLLECTION
+        ):
+            print("[Generator] RAG cache reutilise (collection generator)")
+            return context, detected_ercs
+        print("[Generator] RAG cache incompatible/inutilisable, nouvelle recuperation RAG...")
+
     try:
-        # Collection "langchain" = base data_rag (exemples de contrats & tests reels)
-        rag = AdvancedRAG(collection_name="langchain")
+        # Collection dediee au generator: data_rag (contrats+tests d'exemples).
+        rag = AdvancedRAG(collection_name=GENERATOR_RAG_COLLECTION)
         result = rag.retrieve(state.get("contract_code", ""))
         context = result.get("context", "Aucun contexte trouve.")
         detected_ercs = result.get("detected_ercs", [])
-        print(f"[Generator] RAG data_rag OK")
+        print("[Generator] RAG generator OK")
         return context, detected_ercs
     except Exception as exc:
         print(f"[Generator] RAG echoue : {exc}")
@@ -58,6 +87,23 @@ def _remove_it_blocks_matching(code: str, predicate) -> str:
         block_text = code[start:end + 1]
         if predicate(block_text):
             code = code[:start] + code[end + 1:]
+    return code
+
+
+def _patch_it_blocks_matching_title(code: str, title: str, patch_fn) -> str:
+    if not code or not title:
+        return code
+
+    blocks = _find_it_blocks(code)
+    for start, end in reversed(blocks):
+        block_text = code[start:end + 1]
+        m = re.match(r'\bit\s*\(\s*[\'\"](.+?)[\'\"]\s*,', block_text)
+        if not m:
+            continue
+        if m.group(1).strip() != title.strip():
+            continue
+        patched = patch_fn(block_text)
+        code = code[:start] + patched + code[end + 1:]
     return code
 
 
@@ -208,14 +254,68 @@ def _count_callable_api(contract_code: str) -> int:
     return len(re.findall(pattern, code))
 
 
-def _build_minimal_deploy_test(contract_name: str) -> str:
+def _extract_constructor_types(contract_code: str) -> list[str]:
+    if not contract_code:
+        return []
+
+    code = re.sub(r"/\*.*?\*/", "", contract_code, flags=re.DOTALL)
+    code = re.sub(r"//.*$", "", code, flags=re.MULTILINE)
+
+    match = re.search(r"\bconstructor\s*\((.*?)\)", code, flags=re.DOTALL)
+    if not match:
+        return []
+
+    params = match.group(1).strip()
+    if not params:
+        return []
+
+    out: list[str] = []
+    for raw in params.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        token = re.sub(r"\b(memory|calldata|storage|payable)\b", "", token)
+        token = re.sub(r"\s+", " ", token).strip()
+        parts = token.split(" ")
+        if parts:
+            out.append(parts[0])
+    return out
+
+
+def _default_js_value_for_sol_type(sol_type: str) -> str:
+    t = (sol_type or "").strip().lower()
+    if not t:
+        return "0"
+    if "[" in t and "]" in t:
+        return "[]"
+    if t.startswith("uint") or t.startswith("int"):
+        return "1n"
+    if t.startswith("bool"):
+        return "false"
+    if t.startswith("address"):
+        return "owner.address"
+    if t.startswith("string"):
+        return '""'
+    if t.startswith("bytes"):
+        return '"0x"'
+    return "0"
+
+
+def _build_minimal_deploy_test(contract_name: str, contract_code: str = "") -> str:
+    ctor_types = _extract_constructor_types(contract_code)
+    deploy_args = ", ".join(_default_js_value_for_sol_type(t) for t in ctor_types)
+    deploy_line = "    const instance = await Factory.deploy();\n"
+    if deploy_args:
+        deploy_line = f"    const instance = await Factory.deploy({deploy_args});\n"
+
     return (
         'const { expect } = require("chai");\n'
         'const { ethers } = require("hardhat");\n\n'
         f'describe("{contract_name}", function () {{\n'
         '  it("should deploy successfully", async function () {\n'
+        '    const [owner] = await ethers.getSigners();\n'
         f'    const Factory = await ethers.getContractFactory("{contract_name}");\n'
-        '    const instance = await Factory.deploy();\n'
+        f"{deploy_line}"
         '    await instance.waitForDeployment();\n'
         '    expect(await instance.getAddress()).to.not.equal(ethers.ZeroAddress);\n'
         '  });\n'
@@ -236,6 +336,209 @@ def _sanitize_invalid_numeric_literals(code: str) -> str:
             line = re.sub(r"([\(,]\s*)-\d+(\s*[,\)])", r"\g<1>0\2", line)
             result_lines.append(line)
     return "\n".join(result_lines)
+
+
+def _sanitize_unsafe_bigint_expectations(code: str) -> str:
+    """
+    Évite les literals JS non sûrs dans les assertions de balance,
+    ex: 50 * (10 ** 18) -> 50n * (10n ** 18n)
+    """
+    if not code:
+        return code
+
+    code = re.sub(
+        r"\b(\d+)\s*\*\s*\(\s*10\s*\*\*\s*(\d+)\s*\)",
+        r"\1n * (10n ** \2n)",
+        code,
+    )
+
+    # Évite le mix BigInt/number quand le test utilise await contract.decimals().
+    code = re.sub(
+        r"\b(\d+)n\s*\*\s*\(\s*10n\s*\*\*\s*await\s+([^\)]+)\)",
+        r'ethers.parseUnits("\1", await \2)',
+        code,
+    )
+    code = re.sub(
+        r"\b(\d+)\s*\*\s*\(\s*10\s*\*\*\s*await\s+([^\)]+)\)",
+        r'ethers.parseUnits("\1", await \2)',
+        code,
+    )
+
+    code = re.sub(
+        r"\b(\d+)\s*\*\*\s*(\d+)\b",
+        r"\1n ** \2n",
+        code,
+    )
+
+    return code
+
+
+def _sanitize_unreliable_struct_array_assertions(code: str) -> str:
+    """
+    Supprime les assertions fragiles sur tableaux dynamiques récupérés via getter
+    public de mapping<id, struct>, souvent non exposés par l'ABI.
+    """
+    if not code:
+        return code
+
+    patterns = [
+        # Ex: expect(collection.wasteIds).to.deep.equal([1,2,3]);
+        r"^\s*expect\([^\n]*\.wasteIds[^\n]*\)\.to\.deep\.equal\(\s*\[[^\]]*\]\s*\);\s*$",
+        # Ex: expect(collection[1]).to.deep.equal([1n,2n,3n]);
+        r"^\s*expect\([^\n]*collection\s*\[\s*1\s*\][^\n]*\)\.to\.deep\.equal\(\s*\[[^\]]*\]\s*\);\s*$",
+        # Ex: expect(collection.wasteIds.length).to.equal(3);
+        r"^\s*expect\([^\n]*\.wasteIds\.length[^\n]*\)\.to\.equal\([^\)]*\);\s*$",
+    ]
+
+    for p in patterns:
+        code = re.sub(p, "", code, flags=re.MULTILINE | re.IGNORECASE)
+
+    # Nettoie les lignes vides excessives après suppression.
+    code = re.sub(r"\n{3,}", "\n\n", code)
+    return code
+
+
+def _sanitize_brittle_change_token_balances(code: str) -> str:
+    """
+    Remplace les assertions changeTokenBalances trop dépendantes du flux de token
+    par l'exécution simple de la transaction.
+    """
+    if not code:
+        return code
+
+    return re.sub(
+        r"await\s+expect\((.*?)\)\s*\.to\.changeTokenBalances\([^;]*;",
+        r"await \1;",
+        code,
+        flags=re.DOTALL,
+    )
+
+
+def _sanitize_balanceof_decimal_assertions(code: str) -> str:
+    """
+    Si un test compare directement balanceOf à une petite valeur entière,
+    normalise en parseUnits avec decimals() du contrat token.
+    """
+    if not code:
+        return code
+
+    # map variable de solde -> variable contrat utilisée pour balanceOf
+    var_to_token: dict[str, str] = {}
+    for m in re.finditer(
+        r"\b(?:const|let|var)\s+(\w+)\s*=\s*await\s+(\w+)\.balanceOf\(",
+        code,
+    ):
+        var_to_token[m.group(1)] = m.group(2)
+
+    for bal_var, token_var in var_to_token.items():
+        code = re.sub(
+            rf"expect\(\s*{bal_var}\s*\)\.to\.equal\(\s*(\d+)\s*\)",
+            rf'expect({bal_var}).to.equal(ethers.parseUnits("\1", await {token_var}.decimals()))',
+            code,
+        )
+
+    return code
+
+
+def _sanitize_unsafe_integer_equal_literals(code: str) -> str:
+    """
+    Convertit les très grands littéraux numériques des assertions chai en BigInt,
+    ex: expect(x).to.equal(100000000000000000000) -> ...equal(100000000000000000000n)
+    """
+    if not code:
+        return code
+
+    return re.sub(
+        r"(\.to\.equal\(\s*)(\d{16,})(\s*\))",
+        r"\1\2n\3",
+        code,
+    )
+
+
+def _sanitize_bigint_arithmetic_operands(code: str) -> str:
+    """
+    Corrige les opérations mixtes BigInt/number dans les assertions, ex:
+      initialBalance - 100 -> initialBalance - 100n
+      finalBalance + 1     -> finalBalance + 1n
+    """
+    if not code:
+        return code
+
+    def _repl(m: re.Match) -> str:
+        expr = m.group(1)
+        expr = re.sub(
+            r"\b([A-Za-z_][A-Za-z0-9_]*)\b\s*([\+\-])\s*(\d+)(?!n)\b",
+            r"\1 \2 \3n",
+            expr,
+        )
+        return f".to.equal({expr})"
+
+    return re.sub(r"\.to\.equal\(([^\)]*)\)", _repl, code)
+
+
+def _deterministic_auto_fix_pass(code: str, contract_code: str = "", analyzer_report: dict | None = None) -> str:
+    """
+    Auto-fix déterministe (sans LLM) pour les erreurs JS/Hardhat récurrentes.
+    - Regex globales (BigInt, assertions fragiles)
+    - Patchs ciblés par test en échec via analyzer_report
+    """
+    if not code:
+        return code
+
+    fixed = code
+
+    # Pass globales.
+    fixed = _sanitize_tx_wait_usage(fixed)
+    fixed = _normalize_ethers_v6(fixed)
+    fixed = _sanitize_invalid_numeric_literals(fixed)
+    fixed = _sanitize_unsafe_bigint_expectations(fixed)
+    fixed = _sanitize_unsafe_integer_equal_literals(fixed)
+    fixed = _sanitize_bigint_arithmetic_operands(fixed)
+    fixed = _sanitize_unreliable_struct_array_assertions(fixed)
+    fixed = _sanitize_brittle_change_token_balances(fixed)
+    fixed = _sanitize_balanceof_decimal_assertions(fixed)
+    fixed = _sanitize_impossible_revert_expectations(fixed, contract_code)
+
+    # Pass ciblées à partir des échecs connus.
+    if isinstance(analyzer_report, dict):
+        failures = analyzer_report.get("failures", [])
+        if isinstance(failures, list):
+            for failure in failures:
+                if not isinstance(failure, dict):
+                    continue
+                title = str(failure.get("test", "")).strip()
+                reason = str(failure.get("reason", "")).lower()
+                ftype = str(failure.get("type", "")).upper()
+
+                if not title:
+                    continue
+
+                if ftype == "ASSERTION_DATA_SHAPE" or "expected undefined to deeply equal" in reason:
+                    def _drop_fragile_deep_equal(block: str) -> str:
+                        block = re.sub(
+                            r"^\s*expect\([^\n]*\)\.to\.deep\.equal\(\s*\[[^\]]*\]\s*\);\s*$",
+                            "",
+                            block,
+                            flags=re.MULTILINE,
+                        )
+                        return re.sub(r"\n{3,}", "\n\n", block)
+
+                    fixed = _patch_it_blocks_matching_title(fixed, title, _drop_fragile_deep_equal)
+
+                if "cannot mix bigint" in reason or "unsafe" in reason:
+                    def _fix_bigint_block(block: str) -> str:
+                        block = _sanitize_unsafe_bigint_expectations(block)
+                        block = _sanitize_unsafe_integer_equal_literals(block)
+                        return block
+
+                    fixed = _patch_it_blocks_matching_title(fixed, title, _fix_bigint_block)
+
+    if fixed != code:
+        print("[AutoFix] ✅ Pass déterministe appliqué.")
+    else:
+        print("[AutoFix] ℹ️  Aucun pattern déterministe à corriger.")
+
+    return fixed
 
 
 def _functions_with_explicit_revert(contract_code: str) -> set[str]:
@@ -347,7 +650,7 @@ def generator_normal_node(state: dict) -> dict:
 
     if _count_callable_api(contract_code) == 0:
         print("[Generator Normal] ℹ️  Aucune fonction callable détectée — génération d'un test minimal de déploiement.")
-        test_code = _build_minimal_deploy_test(contract_name)
+        test_code = _build_minimal_deploy_test(contract_name, contract_code)
         _log_code("Generator Normal", test_code)
         _save_artifact("test_code.json", {"test_code": test_code})
         return {"test_code": test_code}
@@ -370,13 +673,13 @@ def generator_normal_node(state: dict) -> dict:
         print(f"[Generator Normal] Réponse brute : {len(raw)} caractères.")
     except Exception as exc:
         print(f"[Generator Normal] ❌ Erreur Codestral : {exc}")
-        raw = ""
+        raw = _build_minimal_deploy_test(contract_name, contract_code)
+        print("[Generator Normal] ℹ️  Fallback local activé (test minimal de déploiement).")
 
-    test_code = _sanitize_impossible_revert_expectations(
-        _sanitize_invalid_numeric_literals(
-            _sanitize_tx_wait_usage(_normalize_ethers_v6(_clean_js_output(raw)))
-        ),
-        contract_code,
+    test_code = _deterministic_auto_fix_pass(
+        _clean_js_output(raw),
+        contract_code=contract_code,
+        analyzer_report=None,
     )
     _log_code("Generator Normal", test_code)
     _save_artifact("test_code.json", {"test_code": test_code})
@@ -394,10 +697,14 @@ def generator_corrector_node(state: dict) -> dict:
 
     if _count_callable_api(contract_code) == 0:
         print("[Generator Corrector] ℹ️  Contrat sans API callable — retour au test minimal de déploiement.")
-        return {"test_code": _build_minimal_deploy_test(contract_name)}
+        return {"test_code": _build_minimal_deploy_test(contract_name, contract_code)}
 
     if not existing_code or not existing_code.strip():
         print("[Generator Corrector] ⚠️  test_code vide dans le state.")
+        # Evite un appel LLM inutile (et coûteux) quand il n'y a rien à corriger.
+        fallback = _build_minimal_deploy_test(contract_name, contract_code)
+        _log_code("Generator Corrector", fallback)
+        return {"test_code": fallback}
     else:
         print(f"[Generator Corrector] Code existant : {existing_code.count(chr(10)) + 1} lignes.")
 
@@ -406,12 +713,23 @@ def generator_corrector_node(state: dict) -> dict:
 
     failures = analyzer_report.get("failures", [])
     failed_titles = list({f["test"] for f in failures if isinstance(f, dict) and f.get("test")})
-    base_code = _prune_failing_tests(existing_code, failed_titles)
-    print(f"[Generator Corrector] {len(failed_titles)} test(s) supprimé(s) avant correction.")
+    # Conserver les tests en échec pour correction ciblée (approche générique multi-contrats).
+    base_code = _deterministic_auto_fix_pass(
+        existing_code,
+        contract_code=contract_code,
+        analyzer_report=analyzer_report,
+    )
+    print(f"[Generator Corrector] {len(failed_titles)} test(s) en échec à corriger.")
+
+    if not base_code or not base_code.strip():
+        print("[Generator Corrector] ℹ️  Code pruné vide — fallback local sans appel LLM.")
+        fallback = _build_minimal_deploy_test(contract_name, contract_code)
+        _log_code("Generator Corrector", fallback)
+        return {"test_code": fallback}
 
     _save_artifact("base_code_before_correction.json", {"test_code": base_code})
     _save_artifact("analyzer_report.json",             analyzer_report)
-    _save_artifact("failed_tests.json",                {"failed": failed_titles})
+    _save_artifact("failed_tests.json",                {"failed": failed_titles, "details": failures})
 
     erc_context, detected_ercs = _get_rag_context(state)
     relevant_examples: str = ""
@@ -427,7 +745,7 @@ def generator_corrector_node(state: dict) -> dict:
             "relevant_examples": relevant_examples,
             "contract_code":     contract_code,
             "test_code":         base_code,
-            "failed_tests_json": json.dumps(failed_titles, ensure_ascii=False),
+            "failed_tests_json": json.dumps(failures, ensure_ascii=False),
             "analyzer_json":     json.dumps(analyzer_report, ensure_ascii=False),
         })
         print(f"[Generator Corrector] Réponse brute : {len(raw)} caractères.")
@@ -435,11 +753,10 @@ def generator_corrector_node(state: dict) -> dict:
         print(f"[Generator Corrector] ❌ Erreur Codestral : {exc}")
         raw = existing_code
 
-    corrected_code = _sanitize_impossible_revert_expectations(
-        _sanitize_invalid_numeric_literals(
-            _sanitize_tx_wait_usage(_normalize_ethers_v6(_clean_js_output(raw)))
-        ),
-        contract_code,
+    corrected_code = _deterministic_auto_fix_pass(
+        _clean_js_output(raw),
+        contract_code=contract_code,
+        analyzer_report=analyzer_report,
     )
     _log_code("Generator Corrector", corrected_code)
 

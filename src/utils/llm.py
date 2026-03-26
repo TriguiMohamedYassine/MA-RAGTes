@@ -9,11 +9,13 @@ Deux modèles distincts :
 """
 
 import os
+import random
 import time
 from typing import Any
 
 from langchain_mistralai import ChatMistralAI
 from dotenv import load_dotenv
+from src.config import require_mistral_api_key
 
 load_dotenv()
 
@@ -45,9 +47,7 @@ def get_llm() -> ChatMistralAI:
     LLM généraliste pour le raisonnement, l'analyse et les sorties JSON.
     Modèle : mistral-large-latest (par défaut) ou LLM_MODEL dans .env
     """
-    api_key = os.getenv("MISTRAL_API_KEY", "")
-    if not api_key:
-        raise EnvironmentError("MISTRAL_API_KEY manquante.")
+    api_key = require_mistral_api_key()
 
     return ChatMistralAI(
         model=os.getenv("LLM_MODEL", "mistral-large-latest"),
@@ -62,9 +62,7 @@ def get_code_llm() -> ChatMistralAI:
     Modèle : codestral-latest — entraîné spécifiquement sur du code.
     Préférer ce modèle pour tout ce qui produit du JS/Solidity.
     """
-    api_key = os.getenv("MISTRAL_API_KEY", "")
-    if not api_key:
-        raise EnvironmentError("MISTRAL_API_KEY manquante.")
+    api_key = require_mistral_api_key()
 
     return ChatMistralAI(
         model="codestral-latest",
@@ -81,7 +79,7 @@ def invoke_with_retry(
     chain: Any,
     payload: dict,
     retries: int = 3,
-    delay: float = 15.0,   # FIX : 2.0 → 15.0 pour absorber les rate limits Mistral (429)
+    delay: float = 15.0,
 ) -> Any:
     """
     Invoque ``chain`` avec ``payload``, en réessayant jusqu'à ``retries`` fois.
@@ -115,8 +113,13 @@ def invoke_with_retry(
         except Exception as exc:
             last_error = exc
             if attempt < retries:
-                # FIX : délai exponentiel en cas de 429 pour mieux absorber le rate limit
-                wait = delay * attempt if "429" in str(exc) else delay
+                is_rate_limited = "429" in str(exc) or "rate limit" in str(exc).lower()
+                if is_rate_limited:
+                    # Backoff exponentiel + jitter pour réduire les collisions de requêtes.
+                    base_wait = delay * (2 ** (attempt - 1))
+                    wait = min(base_wait + random.uniform(0.0, 5.0), 120.0)
+                else:
+                    wait = delay
                 print(f"[LLM] Tentative {attempt}/{retries} échouée : {exc}. Retry dans {wait:.0f}s…")
                 time.sleep(wait)
 

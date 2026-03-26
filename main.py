@@ -109,12 +109,24 @@ def load_contract(contract_name: str | None = None) -> tuple[str, Path]:
 
 def load_user_story(contract_name: str) -> str:
     """
-    Charge les spécifications utilisateur depuis ``<contract_name>.specs.md``
-    si le fichier existe, sinon retourne une chaîne vide.
+    Charge les spécifications utilisateur depuis plusieurs chemins candidats.
+
+    Ordre de priorité :
+    1) <contract_name>.specs.md
+    2) user_story.specs.md
+    3) <contract_name>.txt
+    4) user_story.txt
     """
-    story_path = CONTRACTS_DIR / f"{contract_name}.specs.md"
-    if story_path.exists():
-        return story_path.read_text(encoding="utf-8")
+    candidates = [
+        CONTRACTS_DIR / f"{contract_name}.specs.md",
+        CONTRACTS_DIR / "user_story.specs.md",
+        CONTRACTS_DIR / f"{contract_name}.txt",
+        CONTRACTS_DIR / "user_story.txt",
+    ]
+
+    for story_path in candidates:
+        if story_path.exists():
+            return story_path.read_text(encoding="utf-8")
     return ""
 
 

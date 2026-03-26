@@ -1,6 +1,9 @@
 langchain
+langchain-chroma
+langchain-mistralai
 langchain-openai
 langgraph
+chromadb
 pydantic
 python-dotenv
 matplotlib

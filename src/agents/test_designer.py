@@ -48,11 +48,16 @@ def test_designer_node(state: dict) -> dict:
         rag_cache    = {
             "context":       erc_context,
             "detected_ercs": rag_result.get("detected_ercs", []),
+            "collection_name": "erc_standards",
         }
     except Exception as exc:
         print(f"[Test Designer] RAG ERC échoué : {exc}")
         erc_context = "Contexte ERC indisponible."
-        rag_cache   = {"context": erc_context, "detected_ercs": []}
+        rag_cache   = {
+            "context": erc_context,
+            "detected_ercs": [],
+            "collection_name": "erc_standards",
+        }
 
     # --- Appel LLM ---
     llm    = get_llm()

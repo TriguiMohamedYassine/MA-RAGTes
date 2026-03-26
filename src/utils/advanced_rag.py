@@ -19,7 +19,7 @@ from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
-from src.config import VECTOR_DB_DIR, MISTRAL_API_KEY
+from src.config import VECTOR_DB_DIR, require_mistral_api_key
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,9 @@ class AdvancedRAG:
     """
 
     def __init__(self, collection_name: str = "erc_standards") -> None:
-        self._embeddings = MistralAIEmbeddings(mistral_api_key=MISTRAL_API_KEY)
+        self._collection_name = collection_name
+        api_key = require_mistral_api_key()
+        self._embeddings = MistralAIEmbeddings(mistral_api_key=api_key)
         self._vector_db = Chroma(
             persist_directory=str(VECTOR_DB_DIR),
             embedding_function=self._embeddings,
@@ -81,7 +83,7 @@ class AdvancedRAG:
         self._llm = ChatMistralAI(
             model="mistral-large-latest",
             temperature=0,
-            mistral_api_key=MISTRAL_API_KEY,
+            mistral_api_key=api_key,
         )
 
     # ------------------------------------------------------------------
@@ -273,7 +275,7 @@ class AdvancedRAG:
           - ``metadata``      : statistiques de récupération
         """
         print("\n" + "=" * 60)
-        print("[ADVANCED RAG] Démarrage du pipeline…")
+        print(f"[ADVANCED RAG] Démarrage du pipeline… (collection: {self._collection_name})")
         print("=" * 60)
 
         detected_ercs = self._detect_erc_standards(contract_code)
@@ -283,7 +285,7 @@ class AdvancedRAG:
         ranked_docs   = self._rerank_documents(raw_docs, detected_ercs, top_k=5)
         context       = self._compress_context(ranked_docs, detected_ercs)
 
-        print("[ADVANCED RAG] Pipeline terminé ✅")
+        print(f"[ADVANCED RAG] Pipeline terminé ✅ (collection: {self._collection_name})")
         print("=" * 60 + "\n")
 
         return {

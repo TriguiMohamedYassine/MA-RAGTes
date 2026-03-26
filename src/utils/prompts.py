@@ -74,6 +74,20 @@ RÈGLES CRITIQUES pour le code généré :
 - N'utilise PAS tx.wait() dans les tests (Hardhat auto-mine en local)
 - Pour une fonction view/pure, ne traite jamais le retour comme une transaction
 
+── Assertions robustes sur structs / tuples Solidity ─────────────────────────
+- Les retours de mappings/structs via ethers peuvent être des tuples nommés partiellement.
+- N'écris pas d'assertion fragile du type expect(result.someArrayField).to.deep.equal([...])
+  sans vérifier que le champ est réellement exposé par nom dans l'ABI.
+- Attention : le getter public d'un mapping vers struct avec tableau dynamique
+  n'expose pas toujours ce tableau (ex: wasteIds). Dans ce cas, ne fais pas
+  d'assertion deep.equal sur ce champ via le getter du mapping.
+- Préfère des vérifications robustes :
+  1) utiliser un getter dédié s'il existe,
+  2) vérifier des champs scalaires stables (id, owner, status),
+  3) valider l'effet métier via événements et transitions d'état.
+- Si une assertion échoue pour cause de "undefined" sur un champ de struct, remplace
+  ce test par une assertion équivalente mais ABI-safe (sans dépendre d'un nom de champ non garanti).
+
 ── Contrats utilisant des interfaces de tokens (ERC20, ERC721, ERC1155…) ───
 - Si le contrat Solidity déclare une interface de token (IERC20, IERC721…)
   mais N'HÉRITE PAS lui-même de ce standard, c'est un contrat consommateur

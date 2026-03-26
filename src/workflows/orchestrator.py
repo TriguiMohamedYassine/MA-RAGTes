@@ -58,6 +58,76 @@ def _compute_score(state: PipelineState) -> float:
     )
 
 
+def _suspected_contract_logic_failures(state: PipelineState) -> list[dict]:
+    """
+    Retourne la liste des échecs pouvant indiquer un problème logique du contrat.
+    Heuristique prudente : on exclut les erreurs d'appel API évidentes côté tests.
+    """
+    analyzer = state.get("analyzer_report", {}) or {}
+    failures = analyzer.get("failures", []) if isinstance(analyzer, dict) else []
+    if not isinstance(failures, list):
+        return []
+
+    suspected: list[dict] = []
+    for item in failures:
+        if not isinstance(item, dict):
+            continue
+        f_type = str(item.get("type", "")).upper()
+        reason = str(item.get("reason", "")).lower()
+
+        # Exclut les erreurs typiquement côté test (pas logique contrat).
+        test_side_signals = [
+            "cannot mix bigint",
+            "unsafe",
+            "is not a function",
+            "expected undefined to deeply equal",
+            "assertion_data_shape",
+        ]
+        if any(sig in reason for sig in test_side_signals) or f_type in {"ASSERTION_DATA_SHAPE", "CALL_ERROR", "OTHER"}:
+            continue
+
+        if f_type in {"REVERT_MISMATCH", "ASSERTION_MISMATCH"}:
+            suspected.append(item)
+            continue
+
+        # Fallback pour anciens rapports sans champ "type"
+        has_assertion_signal = "assertionerror" in reason or "expected " in reason
+        has_revert_signal = "revert" in reason or "reverted" in reason
+        has_call_signal = "is not a function" in reason
+        if (has_assertion_signal or has_revert_signal) and not has_call_signal:
+            suspected.append(item)
+
+    return suspected
+
+
+def _print_contract_logic_warning_if_needed(state: PipelineState, stop_reason: str) -> None:
+    """
+    Affiche un message de fin si des échecs persistants suggèrent une faute logique
+    dans le contrat. Ne modifie jamais le contrat — diagnostic uniquement.
+    """
+    summary = state.get("execution_summary", {}) or {}
+    failed = int(summary.get("failed", 0) or 0)
+    if failed <= 0:
+        return
+
+    suspected = _suspected_contract_logic_failures(state)
+    if not suspected:
+        return
+
+    print("[DIAGNOSTIC] ⚠️  Anomalie potentielle de logique métier dans le contrat détectée.")
+    print("[DIAGNOSTIC] Le pipeline corrige uniquement les tests et ne modifie jamais le contrat Solidity.")
+    print(f"[DIAGNOSTIC] Contexte d'arrêt : {stop_reason}")
+    print(f"[DIAGNOSTIC] Échecs suspects : {len(suspected)}/{failed}")
+
+    for idx, failure in enumerate(suspected[:3], start=1):
+        test_name = str(failure.get("test", "<test inconnu>"))
+        reason = str(failure.get("reason", "raison indisponible"))
+        print(f"[DIAGNOSTIC] {idx}. {test_name}")
+        print(f"[DIAGNOSTIC]    ↳ {reason}")
+
+    print("[DIAGNOSTIC] Action recommandée : revue manuelle des règles métier dans le contrat.")
+
+
 # ---------------------------------------------------------------------------
 # Condition de routage après l'Évaluateur
 # ---------------------------------------------------------------------------
@@ -90,6 +160,7 @@ def _route_after_evaluation(state: PipelineState) -> str:
     # --- Sortie du graphe ---
     if stop_reason:
         print(f"\n[FIN DU PIPELINE] {stop_reason}")
+        _print_contract_logic_warning_if_needed(state, stop_reason)
         print(f"Nombre total d'itérations parcourues : {iterations}\n")
         return END
 

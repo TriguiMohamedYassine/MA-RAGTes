@@ -25,7 +25,7 @@ VECTOR_DB_DIR: Path = DATA_DIR / "vector_db"
 # Paramètres de l'application
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONTRACT_NAME: str = "Whitelist"
+DEFAULT_CONTRACT_NAME: str = "Splitter"
 MAX_RETRIES: int = 7
 
 # ---------------------------------------------------------------------------
@@ -34,8 +34,12 @@ MAX_RETRIES: int = 7
 
 MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "")
 
-if not MISTRAL_API_KEY:
-    raise EnvironmentError(
-        "La variable d'environnement MISTRAL_API_KEY est manquante. "
-        "Ajoutez-la dans votre fichier .env ou dans l'environnement système."
-    )
+
+def require_mistral_api_key() -> str:
+    """Retourne la clé Mistral ou lève une erreur explicite si absente."""
+    if not MISTRAL_API_KEY:
+        raise EnvironmentError(
+            "La variable d'environnement MISTRAL_API_KEY est manquante. "
+            "Ajoutez-la dans votre fichier .env ou dans l'environnement système."
+        )
+    return MISTRAL_API_KEY

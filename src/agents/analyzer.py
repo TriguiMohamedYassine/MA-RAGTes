@@ -41,10 +41,37 @@ def _extract_failures(test_report: dict[str, Any]) -> list[dict[str, str]]:
         err = test.get("err") if isinstance(test.get("err"), dict) else {}
         reason = err.get("message") or err.get("estack") or "Test en échec (raison inconnue)."
         reason = str(reason).splitlines()[0][:500]
+        code_snippet = str(test.get("code") or "").strip()
+
+        reason_l = reason.lower()
+        if "is not a function" in reason_l:
+            failure_type = "CALL_ERROR"
+            fix = (
+                "Vérifier le nom et la visibilité de la fonction (public/external). "
+                "Si private/internal, supprimer le test direct et tester via une API publique."
+            )
+        elif "reverted with" in reason_l or "revert" in reason_l:
+            failure_type = "REVERT_MISMATCH"
+            fix = "Corriger le setup et les préconditions du test (rôles, état, autorisations, ordre des appels)."
+        elif "expected undefined to deeply equal" in reason_l:
+            failure_type = "ASSERTION_DATA_SHAPE"
+            fix = (
+                "Éviter les assertions deep.equal directes sur un champ de struct/tuple potentiellement non exposé "
+                "par nom. Préférer des assertions robustes (getter dédié, événement, ou accès tuple cohérent)."
+            )
+        elif "expected" in reason_l:
+            failure_type = "ASSERTION_MISMATCH"
+            fix = "Corriger la valeur attendue selon le comportement réel on-chain (types BigInt/enum/string inclus)."
+        else:
+            failure_type = "OTHER"
+            fix = "Corriger uniquement le test; ne pas modifier le contrat Solidity."
+
         failures.append({
             "test": str(title),
             "reason": reason,
-            "fix": "Corriger uniquement le test; ne pas modifier le contrat Solidity.",
+            "type": failure_type,
+            "fix": fix,
+            "test_code": code_snippet,
         })
     return failures
 
