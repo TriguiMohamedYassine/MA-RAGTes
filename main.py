@@ -44,6 +44,7 @@ _DIRS_TO_CLEAN: list[Path] = [
 # Fichiers isolés à supprimer
 _FILES_TO_CLEAN: list[Path] = [
     BASE_DIR / "test" / "generated_test.js",
+    BASE_DIR / "coverage.json",
 ]
 
 

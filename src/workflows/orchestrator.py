@@ -38,7 +38,7 @@ class PipelineState(TypedDict, total=False):
     evaluation_decision: str
     evaluation_reason:   str
     iterations:          int
-    prev_score:          float   # FIX : score de l'itération précédente pour détection de stagnation
+    prev_score:          float   # score de l'itération précédente pour détection de stagnation
 
 
 # ---------------------------------------------------------------------------

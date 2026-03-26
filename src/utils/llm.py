@@ -89,7 +89,7 @@ def invoke_with_retry(
         payload: Dictionnaire d'entrée.
         retries: Nombre maximum de tentatives.
         delay:   Délai en secondes entre tentatives.
-                 FIX : augmenté à 15s pour respecter les quotas Mistral.
+             Réglé à 15s pour respecter les quotas Mistral.
 
     Returns:
         Résultat de l'invocation.

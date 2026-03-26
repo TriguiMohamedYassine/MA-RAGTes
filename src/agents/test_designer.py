@@ -1,15 +1,4 @@
-"""
-test_designer.py
-----------------
-Agent LangGraph responsable de la conception de la stratégie de tests.
-
-Utilise le RAG ERC pour enrichir le contexte avant d'appeler le LLM,
-puis persiste le résultat dans OUTPUT_DIR/test_design.json.
-
-FIX : ajout d'un try/except avec fallback minimal (comme analyzer_node),
-      et stockage du rag_cache dans le state pour éviter un 2ème appel RAG
-      dans generator_normal_node.
-"""
+"""Agent LangGraph responsable de la conception de la stratégie de tests."""
 
 import json
 
@@ -32,14 +21,13 @@ def test_designer_node(state: dict) -> dict:
     Sorties ajoutées au state :
       - test_design  (dict)
       - erc_context  (str)
-      - rag_cache    (dict)  ← FIX : évite un 2ème appel RAG dans generator_normal_node
+    - rag_cache    (dict)
     """
     print("--- TEST DESIGNER ---")
 
     contract_code: str = state.get("contract_code", "")
 
     # --- Récupération du contexte ERC via RAG ---
-    # FIX : stocke le résultat complet dans rag_cache pour le partager avec generator_normal
     rag_cache: dict = {}
     try:
         rag = AdvancedRAG(collection_name="erc_standards")
@@ -64,7 +52,7 @@ def test_designer_node(state: dict) -> dict:
     chain  = TEST_DESIGNER_PROMPT | llm
     parser = JsonOutputParser()
 
-    # FIX : try/except avec fallback minimal pour ne pas tuer le pipeline
+    # Fallback minimal pour ne pas interrompre le pipeline.
     try:
         message = invoke_with_retry(chain, {
             "contract_code": contract_code,
@@ -88,7 +76,7 @@ def test_designer_node(state: dict) -> dict:
     except OSError as exc:
         print(f"[Test Designer] Impossible de sauvegarder test_design.json : {exc}")
 
-    # FIX : retourne rag_cache pour éviter un 2ème appel RAG dans generator_normal_node
+    # Retourne rag_cache pour éviter un 2ème appel RAG dans generator_normal_node.
     return {
         "test_design": result,
         "erc_context": erc_context,
