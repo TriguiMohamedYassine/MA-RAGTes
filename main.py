@@ -162,7 +162,7 @@ def main() -> None:
     initial_state = {
         "contract_code":   contract_code,
         "user_story":      user_story,
-        "source_filename": contract_path.name,  # ex: "SimpleSwap.sol"
+        "source_filename": contract_path.name, 
         "iterations":      0,
     }
 

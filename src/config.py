@@ -25,7 +25,7 @@ VECTOR_DB_DIR: Path = DATA_DIR / "vector_db"
 # Paramètres de l'application
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONTRACT_NAME: str = "Splitter"
+DEFAULT_CONTRACT_NAME: str = "Adoption"
 MAX_RETRIES: int = 7
 
 # ---------------------------------------------------------------------------
