@@ -23,7 +23,7 @@ OUTPUT_DIR:    Path = BASE_DIR / "outputs"
 # Paramètres de l'application
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONTRACT_NAME: str = "MetaCoin"
+DEFAULT_CONTRACT_NAME: str = "WasteManagement"
 MAX_RETRIES: int = 7
 
 # ---------------------------------------------------------------------------

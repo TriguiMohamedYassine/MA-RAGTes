@@ -1,15 +1,14 @@
 """
 prompts.py
 ----------
-Définit tous les prompts LangChain utilisés dans le pipeline.
+Defines all LangChain prompts used in the pipeline.
 
-Convention : les accolades littérales dans les templates ChatPromptTemplate
-doivent être doublées ({{ }}) pour ne pas être interprétées comme des
-variables de substitution.
+Convention: literal braces in ChatPromptTemplate templates
+must be doubled ({{ }}) so they are not interpreted as
+substitution variables.
 
-FIX : GENERATOR_NORMAL_PROMPT et GENERATOR_CORRECTOR_PROMPT demandent
-désormais du JS brut (plus de JSON wrapper) pour éviter les problèmes
-de parsing chez Codestral.
+FIX: GENERATOR_NORMAL_PROMPT and GENERATOR_CORRECTOR_PROMPT now request
+raw JS (no JSON wrapper) to avoid parsing issues with Codestral.
 """
 
 from langchain_core.prompts import (
@@ -19,38 +18,38 @@ from langchain_core.prompts import (
 )
 
 # ---------------------------------------------------------------------------
-# Règles communes injectées dans chaque prompt système
+# Shared rules injected into each system prompt
 # ---------------------------------------------------------------------------
 
 _GLOBAL_RULES = """
-Tu es un expert Solidity, Hardhat, Mocha et test de smart contracts.
+You are an expert in Solidity, Hardhat, Mocha, and smart contract testing.
 
-Règles absolues :
-- Sois déterministe et structuré
-- N'hallucine pas de fonctions absentes du contrat
+Absolute rules:
+- Be deterministic and structured
+- Do not hallucinate functions that are not present in the contract
 """
 
 _JSON_RULES = """
-FORMAT JSON OBLIGATOIRE :
-- Retourne du JSON strict (aucun texte en dehors du JSON)
-- Le JSON doit être parsable directement par Python json.loads()
+MANDATORY JSON FORMAT:
+- Return strict JSON (no text outside JSON)
+- JSON must be directly parseable by Python json.loads()
 """
 
 _COVERAGE_RULES = """
-Consignes de couverture :
-- Privilégie la couverture de branches (if/else, require)
-- Inclus des tests de revert et des valeurs limites (0, max, entrée invalide)
+Coverage guidance:
+- Prioritize branch coverage (if/else, require)
+- Include revert tests and boundary values (0, max, invalid input)
 """
 
-# FIX : règles spécifiques aux prompts de génération de code JS
+# FIX: specific rules for JS code-generation prompts
 _CODE_RULES = """
-RÈGLES CRITIQUES pour le code généré :
-- Utilise UNIQUEMENT les contrats présents dans le fichier Solidity fourni
-- N'invente PAS de contrats auxiliaires (MaliciousContract, ReentrancyAttacker, Attacker, etc.)
-- Si tu veux tester la réentrance, utilise uniquement le contrat principal
-- N'utilise PAS ethers.utils.* — utilise ethers.parseEther(), ethers.parseUnits() directement
-- N'utilise PAS .deployed() — utilise .waitForDeployment()
-- Utilise loadFixture depuis @nomicfoundation/hardhat-toolbox/network-helpers
+CRITICAL RULES for generated code:
+- Use ONLY the contracts present in the provided Solidity file
+- Do NOT invent helper contracts (MaliciousContract, ReentrancyAttacker, Attacker, etc.)
+- If you want to test reentrancy, use only the main contract
+- Do NOT use ethers.utils.* - use ethers.parseEther(), ethers.parseUnits() directly
+- Do NOT use .deployed() - use .waitForDeployment()
+- Use loadFixture from @nomicfoundation/hardhat-toolbox/network-helpers
 """
 
 # ---------------------------------------------------------------------------
@@ -60,18 +59,18 @@ RÈGLES CRITIQUES pour le code généré :
 TEST_DESIGNER_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
   _GLOBAL_RULES + _JSON_RULES + """
-OBJECTIF : Concevoir une stratégie de tests complète pour le contrat Solidity fourni.
+GOAL: Design a complete testing strategy for the provided Solidity contract.
 
-FORMAT DE SORTIE (JSON uniquement) :
+OUTPUT FORMAT (JSON only):
 {{
-  "contract_name": "<nom>",
+  "contract_name": "<name>",
   "test_suites": [
     {{
-      "suite_name": "<nom de la suite>",
+      "suite_name": "<suite name>",
       "test_cases": [
         {{
           "test_title": "<should…>",
-          "target_function": "<fonction>",
+          "target_function": "<function>",
           "inputs": {{}},
           "expected_behavior": "…"
         }}
@@ -82,90 +81,90 @@ FORMAT DE SORTIE (JSON uniquement) :
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-  === CONTEXTE CONTRAT ===
+  === CONTRACT CONTEXT ===
 {erc_context}
 
-=== USER STORY / EXIGENCES ===
+=== USER STORY / REQUIREMENTS ===
 {user_story}
 
-=== CONTRAT SOLIDITY ===
+=== SOLIDITY CONTRACT ===
 {contract_code}
 """),
 ])
 
 # ---------------------------------------------------------------------------
-# GENERATOR — première génération
-# FIX : demande du JS brut directement, plus de JSON wrapper
+# GENERATOR - first generation
+# FIX: request raw JS directly, no JSON wrapper
 # ---------------------------------------------------------------------------
 
 GENERATOR_NORMAL_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
-OBJECTIF : Écrire le fichier de tests JavaScript complet à partir de la stratégie fournie.
+GOAL: Write the complete JavaScript test file from the provided strategy.
 
-FORMAT DE SORTIE :
-Retourne UNIQUEMENT le code JavaScript brut, sans aucun texte avant ou après,
-sans balises Markdown, sans JSON wrapper.
-Commence directement par la première ligne de code :
+OUTPUT FORMAT:
+Return ONLY raw JavaScript code, with no text before or after,
+no Markdown fences, and no JSON wrapper.
+Start directly with the first line of code:
 const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-  === 1. CONTEXTE CONTRAT ===
+  === 1. CONTRACT CONTEXT ===
 {erc_context}
 
-=== 2. EXEMPLES ET BONNES PRATIQUES ===
+=== 2. EXAMPLES AND BEST PRACTICES ===
 {relevant_examples}
 
-=== 3. CONTRAT SOLIDITY ===
+=== 3. SOLIDITY CONTRACT ===
 {contract_code}
 
-=== 4. STRATÉGIE DE TESTS (JSON) ===
+=== 4. TEST STRATEGY (JSON) ===
 {test_design_json}
 """),
 ])
 
 # ---------------------------------------------------------------------------
-# GENERATOR — correcteur / itération
-# FIX : demande du JS brut directement, plus de JSON wrapper
+# GENERATOR - corrector / iteration
+# FIX: request raw JS directly, no JSON wrapper
 # ---------------------------------------------------------------------------
 
 GENERATOR_CORRECTOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
-OBJECTIF : Corriger les tests JS existants pour les faire passer et améliorer
-la couverture d'après le rapport de l'Analyser.
+GOAL: Fix existing JS tests so they pass and improve
+coverage based on the Analyzer report.
 
-Règles supplémentaires :
-- Garde tous les tests existants qui passent
-- Corrige uniquement les tests en échec listés dans le rapport
-- Ajoute les tests manquants signalés dans le rapport
-- Ne génère PAS de nouveaux contrats Solidity auxiliaires dans les tests
+Additional rules:
+- Keep all existing tests that pass
+- Fix only the failing tests listed in the report
+- Add the missing tests reported
+- Do NOT generate new helper Solidity contracts in tests
 
-FORMAT DE SORTIE :
-Retourne UNIQUEMENT le code JavaScript brut corrigé et complet,
-sans aucun texte avant ou après, sans balises Markdown, sans JSON wrapper.
-Commence directement par :
+OUTPUT FORMAT:
+Return ONLY the corrected and complete raw JavaScript code,
+with no text before or after, no Markdown fences, and no JSON wrapper.
+Start directly with:
 const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-  === 1. CONTEXTE CONTRAT ===
+  === 1. CONTRACT CONTEXT ===
 {erc_context}
 
-=== 2. EXEMPLES ET BONNES PRATIQUES ===
+=== 2. EXAMPLES AND BEST PRACTICES ===
 {relevant_examples}
 
-=== 3. CONTRAT SOLIDITY ===
+=== 3. SOLIDITY CONTRACT ===
 {contract_code}
 
-=== 4. CODE DE TESTS ACTUEL ===
+=== 4. CURRENT TEST CODE ===
 {test_code}
 
-=== 5. TESTS EN ÉCHEC ===
+=== 5. FAILING TESTS ===
 {failed_tests_json}
 
-=== 6. RAPPORT DE L'ANALYSER ===
+=== 6. ANALYZER REPORT ===
 {analyzer_json}
 """),
 ])
@@ -177,13 +176,13 @@ const {{ expect }} = require("chai");
 ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
   _GLOBAL_RULES + _JSON_RULES + _COVERAGE_RULES + """
-OBJECTIF : Analyser les tests et identifier les échecs, les fonctions/branches
-non couvertes et les cas limites manquants.
+GOAL: Analyze tests and identify failures, uncovered
+functions/branches, and missing edge cases.
 
-FORMAT DE SORTIE :
+OUTPUT FORMAT:
 {{
   "failures": [
-    {{"test": "<nom>", "reason": "<pourquoi>", "fix": "<comment corriger>"}}
+    {{"test": "<name>", "reason": "<why>", "fix": "<how to fix>"}}
   ],
   "missing_coverage": {{
     "functions": [],
@@ -195,10 +194,10 @@ FORMAT DE SORTIE :
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-Contrat      : {contract_code}
-Code de test : {test_code}
-Rapport test : {mochawesome_json}
-Couverture   : {coverage_json}
+Contract    : {contract_code}
+Test code   : {test_code}
+Test report : {mochawesome_json}
+Coverage    : {coverage_json}
 """),
 ])
 
@@ -209,22 +208,22 @@ Couverture   : {coverage_json}
 EVALUATOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
   _GLOBAL_RULES + _JSON_RULES + """
-CRITÈRES pour relancer la génération (decision = "regenerate") :
-  - Nombre de tests en échec > 0  ET  la cause est corrigeable (pas un contrat manquant)
-  - Couverture de branches < 80 %
-  - Couverture des instructions < 85 %
+CRITERIA to regenerate (decision = "regenerate"):
+  - Number of failing tests > 0 AND the cause is fixable (not a missing contract)
+  - Branch coverage < 80%
+  - Statement coverage < 85%
 
-CRITÈRES pour arrêter (decision = "stop") :
-  - Tous les tests passent (failures = 0)
-  - OU couverture statements >= 85% ET branches >= 80% ET failures <= 0
-  - OU les échecs restants sont dus à des contrats inexistants non corrigeables
+CRITERIA to stop (decision = "stop"):
+  - All tests pass (failures = 0)
+  - OR statement coverage >= 85% AND branches >= 80% AND failures <= 0
+  - OR remaining failures are caused by non-existent contracts that cannot be fixed
 
-FORMAT DE SORTIE :
-{{ "decision": "stop|regenerate", "reason": "<explication claire>" }}
+OUTPUT FORMAT:
+{{ "decision": "stop|regenerate", "reason": "<clear explanation>" }}
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-Résumé d'exécution : {execution_summary}
-Rapport Analyser  : {analyzer_json}
+Execution summary : {execution_summary}
+Analyzer report   : {analyzer_json}
 """),
 ])
