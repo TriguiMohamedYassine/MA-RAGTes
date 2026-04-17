@@ -1,0 +1,207 @@
+{
+  "name": "vscode-solidtest",
+  "displayName": "SolidTest",
+  "description": "Plugin VS Code pour générer automatiquement des tests pour smart contracts Solidity",
+  "version": "1.0.0",
+  "publisher": "solidtest",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other",
+    "Testing",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "solidity",
+    "testing",
+    "smart-contracts",
+    "ethereum"
+  ],
+  "activationEvents": [
+  "workspaceContains:**/*.sol",
+  "onCommand:solidtest.submitContract",
+  "onCommand:solidtest.submitCurrentContract",
+  "onCommand:solidtest.viewHistory",
+  "onCommand:solidtest.openDashboard",
+  "onCommand:solidtest.openLatestResult",
+  "onCommand:solidtest.settings",
+  "onCommand:solidtest.viewResults",
+  "onCommand:solidtest.refresh",
+  "onView:solidtestExplorer"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "solidtest.submitContract",
+        "title": "SolidTest: Soumettre pour test",
+        "category": "SolidTest",
+        "when": "resourceLangId == solidity",
+        "icon": "$(play)"
+      },
+      {
+        "command": "solidtest.submitCurrentContract",
+        "title": "SolidTest: Submit current contract",
+        "category": "SolidTest",
+        "icon": "$(play)"
+      },
+      {
+        "command": "solidtest.viewHistory",
+        "title": "SolidTest: Voir l'historique",
+        "category": "SolidTest",
+        "icon": "$(history)"
+      },
+      {
+        "command": "solidtest.openDashboard",
+        "title": "SolidTest: Ouvrir le tableau de bord",
+        "category": "SolidTest",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "solidtest.openLatestResult",
+        "title": "SolidTest: Open latest result",
+        "category": "SolidTest",
+        "icon": "$(file-text)"
+      },
+      {
+        "command": "solidtest.settings",
+        "title": "SolidTest: Paramètres",
+        "category": "SolidTest",
+        "icon": "$(settings)"
+      },
+      {
+        "command": "solidtest.runTestNow",
+        "title": "Exécuter le test maintenant",
+        "icon": "$(play)"
+      },
+      {
+        "command": "solidtest.viewResults",
+        "title": "Voir les résultats",
+        "icon": "$(file-text)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "solidtest.submitContract",
+          "group": "1_modification",
+          "when": "resourceLangId == solidity"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "solidtest.submitContract",
+          "group": "1_modification",
+          "when": "resourceLangId == solidity"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "solidtest.viewResults",
+          "group": "inline",
+          "when": "view == solidtestExplorer && viewItem == run"
+        },
+        {
+          "command": "solidtest.runTestNow",
+          "group": "inline",
+          "when": "view == solidtestExplorer && viewItem == pending"
+        }
+      ]
+    },
+    "views": {
+      "solidtestExplorer": [
+        {
+          "id": "solidtestExplorer",
+          "name": "SolidTest Explorer",
+          "icon": "media/solidtest.svg",
+          "contextualTitle": "SolidTest"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "solidtestExplorer",
+          "title": "SolidTest",
+          "icon": "media/solidtest.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SolidTest",
+      "properties": {
+        "solidtest.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL de l'API SolidTest"
+        },
+        "solidtest.frontendUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "URL du frontend SolidTest"
+        },
+        "solidtest.defaultEnvironment": {
+          "type": "string",
+          "default": "simulation",
+          "description": "Environnement proposé par défaut lors de la soumission"
+        },
+        "solidtest.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rafraîchir automatiquement l'historique"
+        },
+        "solidtest.refreshInterval": {
+          "type": "number",
+          "default": 5000,
+          "description": "Intervalle de rafraîchissement en millisecondes"
+        },
+        "solidtest.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Afficher les notifications"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "solidtest.submitContract",
+        "key": "ctrl+alt+t",
+        "when": "resourceLangId == solidity"
+      },
+      {
+        "command": "solidtest.submitCurrentContract",
+        "key": "ctrl+alt+shift+t",
+        "when": "resourceLangId == solidity"
+      },
+      {
+        "command": "solidtest.viewHistory",
+        "key": "ctrl+alt+h"
+      },
+      {
+        "command": "solidtest.openLatestResult",
+        "key": "ctrl+alt+l"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.0",
+    "@types/vscode": "^1.60.0",
+    "@typescript-eslint/eslint-plugin": "^4.31.1",
+    "@typescript-eslint/parser": "^4.31.1",
+    "eslint": "^7.32.0",
+    "typescript": "^4.3.5"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "dotenv": "^16.0.0"
+  }
+}

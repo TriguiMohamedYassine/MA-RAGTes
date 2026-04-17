@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SolidTest</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🔧 SolidTest</h1>
+            <p class="subtitle">Smart Contract Test Generator</p>
+        </div>
+
+        <!-- Status Section -->
+        <div class="section">
+            <div class="section-header">Status</div>
+            <div id="status" class="status-badge">Ready</div>
+            <div id="statusMessage" class="status-message"></div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="section">
+            <div class="section-header">Actions</div>
+            <div class="button-group">
+                <button id="submitBtn" class="btn btn-primary">📤 Submit Contract</button>
+                <button id="historyBtn" class="btn btn-secondary">📋 View History</button>
+                <button id="dashboardBtn" class="btn btn-secondary">📊 Dashboard</button>
+            </div>
+        </div>
+
+        <!-- Current Contract Info -->
+        <div class="section">
+            <div class="section-header">Current Contract</div>
+            <div id="contractInfo" class="info-box">
+                <p class="placeholder">No contract selected</p>
+            </div>
+        </div>
+
+        <!-- Recent Results -->
+        <div class="section">
+            <div class="section-header">Recent Tests</div>
+            <div id="recentTests" class="results-list">
+                <p class="placeholder">No recent tests</p>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="section">
+            <div class="section-header">Configuration</div>
+            <div class="config-item">
+                <label>API URL:</label>
+                <input id="apiUrl" type="text" placeholder="http://localhost:8000" class="input-field">
+            </div>
+            <button id="saveSettings" class="btn btn-secondary">💾 Save Settings</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

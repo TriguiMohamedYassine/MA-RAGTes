@@ -5,7 +5,7 @@ require("solidity-coverage");
 module.exports = {
   solidity: "0.8.24",
   paths: {
-    sources: process.env.HARDHAT_SOURCES_PATH || "./contracts",
+    sources: process.env.HARDHAT_SOURCES_PATH || "./contracts/src",
   },
   mocha: {
     reporter: "mochawesome",
