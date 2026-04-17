@@ -99,7 +99,7 @@ class AdvancedRAG:
                     detected.append(standard)
                     break  # un seul match suffit par standard
 
-        label = ", ".join(detected) if detected else "Aucun — Contrat générique"
+        label = ", ".join(detected) if detected else "None - Generic contract"
         print(f"[RAG] Standards ERC détectés : {label}")
         return detected
 
@@ -114,16 +114,16 @@ class AdvancedRAG:
         Génère une documentation ERC hypothétique afin d'améliorer
         la similarité sémantique lors de la recherche vectorielle.
         """
-        standards_label = ", ".join(detected_ercs) if detected_ercs else "Contrat Solidity générique"
+        standards_label = ", ".join(detected_ercs) if detected_ercs else "Generic Solidity contract"
 
         prompt = (
-            f"Standards détectés : {standards_label}\n\n"
-            f"Code du contrat (extrait) :\n{contract_code[:2000]}\n\n"
-            "Génère une spécification technique hypothétique (200-300 mots) couvrant :\n"
-            "1. Fonctions requises et comportement attendu\n"
-            "2. Événements requis\n"
-            "3. Conditions de revert\n"
-            "Réponds uniquement avec le texte de la spécification."
+            f"Detected standards: {standards_label}\n\n"
+            f"Contract code (excerpt):\n{contract_code[:2000]}\n\n"
+            "Generate a hypothetical technical specification (200-300 words) covering:\n"
+            "1. Required functions and expected behavior\n"
+            "2. Required events\n"
+            "3. Revert conditions\n"
+            "Respond only with the specification text."
         )
 
         response = self._llm.invoke([HumanMessage(content=prompt)])
@@ -200,17 +200,17 @@ class AdvancedRAG:
             for i, doc in enumerate(candidates)
         )
 
-        standards_label = ", ".join(detected_ercs) if detected_ercs else "Contrat générique"
+        standards_label = ", ".join(detected_ercs) if detected_ercs else "Generic contract"
         rerank_prompt = (
-            f"Le contrat implémente : {standards_label}\n\n"
-            f"Critères de scoring (0-10) :\n"
-            f"  10 — Spécifie directement le comportement requis du standard\n"
-            f"   8 — Contient des conditions de sécurité ou de test\n"
-            f"   6 — Bonnes pratiques de test\n"
-            f"   4 — Lien indirect\n"
-            f"   0 — Non pertinent\n\n"
-            f"Documents :\n{summaries}\n\n"
-            f'Réponds UNIQUEMENT en JSON : {{"scores": [<score_0>, <score_1>, …]}}'
+            f"Implemented standards: {standards_label}\n\n"
+            f"Scoring criteria (0-10):\n"
+            f"  10 - Directly specifies required standard behavior\n"
+            f"   8 - Contains security or testing conditions\n"
+            f"   6 - Testing best practices\n"
+            f"   4 - Indirect relation\n"
+            f"   0 - Irrelevant\n\n"
+            f"Documents:\n{summaries}\n\n"
+            f'Respond ONLY in JSON: {{"scores": [<score_0>, <score_1>, ...]}}'
         )
 
         try:
@@ -238,21 +238,21 @@ class AdvancedRAG:
     ) -> str:
         """Extrait uniquement les informations utiles pour la génération de tests."""
         if not documents:
-            return "Aucun standard pertinent trouvé dans la base de connaissances."
+            return "No relevant standard found in the knowledge base."
 
         raw_context = "\n\n".join(
             f"--- SOURCE ---\n{doc.page_content}" for doc in documents
         )
-        standards_label = ", ".join(detected_ercs) if detected_ercs else "Contrat générique"
+        standards_label = ", ".join(detected_ercs) if detected_ercs else "Generic contract"
 
         prompt = (
-            f"Standards détectés : {standards_label}\n\n"
-            f"Contexte brut :\n{raw_context[:6000]}\n\n"
-            "Extrais et organise UNIQUEMENT les informations utiles pour les tests :\n"
-            "1. FONCTIONS REQUISES\n"
-            "2. ÉVÉNEMENTS REQUIS\n"
-            "3. CONDITIONS DE REVERT\n"
-            "4. EXIGENCES DE SÉCURITÉ"
+            f"Detected standards: {standards_label}\n\n"
+            f"Raw context:\n{raw_context[:6000]}\n\n"
+            "Extract and organize ONLY information useful for testing:\n"
+            "1. REQUIRED FUNCTIONS\n"
+            "2. REQUIRED EVENTS\n"
+            "3. REVERT CONDITIONS\n"
+            "4. SECURITY REQUIREMENTS"
         )
 
         try:

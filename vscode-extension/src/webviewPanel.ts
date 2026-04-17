@@ -136,6 +136,10 @@ export class SolidTestPanel {
         });
     }
 
+    public setApiClient(apiClient: ApiClient) {
+        this.apiClient = apiClient;
+    }
+
     public setError(message: string) {
         this.postMessage({
             type: 'error',

@@ -1,17 +1,17 @@
-"""
+﻿"""
 prompts.py
 ----------
-Définit tous les prompts LangChain utilisés dans le pipeline.
+Defines all LangChain prompts used in the pipeline.
 
-Convention : les accolades littérales dans les templates ChatPromptTemplate
-doivent être doublées ({{ }}) pour ne pas être interprétées comme des
-variables de substitution.
+Convention: literal braces in ChatPromptTemplate templates
+must be doubled ({{ }}) so they are not interpreted as
+substitution variables.
 
-GÉNÉRALISATION COMPLÈTE :
-- Aucune règle spécifique à un contrat particulier (ex: SimpleSwap, LotteryGame…)
-- Les règles DEX/ERC20 sont détectées dynamiquement depuis le contrat fourni
-- Ajout des règles de visibilité Solidity (private/internal)
-- L'évaluateur reconnaît les cas structurellement non corrigeables
+FULL GENERALIZATION:
+- No rules specific to any particular contract (e.g. SimpleSwap, LotteryGame...)
+- DEX/ERC20 rules are detected dynamically from the provided contract
+- Solidity visibility rules added (private/internal)
+- The evaluator recognizes structurally non-fixable cases
 """
 
 from langchain_core.prompts import (
@@ -21,90 +21,90 @@ from langchain_core.prompts import (
 )
 
 # ---------------------------------------------------------------------------
-# Règles communes injectées dans chaque prompt système
+# Shared rules injected into each system prompt
 # ---------------------------------------------------------------------------
 
 _GLOBAL_RULES = """
-Tu es un expert Solidity, Hardhat, Mocha et test de smart contracts.
+You are an expert in Solidity, Hardhat, Mocha, and smart contract testing.
 
-Règles absolues :
-- Retourne du JSON strict (aucun texte en dehors du JSON)
-- Sois déterministe et structuré
-- N'hallucine pas de fonctions absentes du contrat
-- Le JSON doit être parsable directement par Python json.loads()
-- Analyse toujours le contrat Solidity fourni avant de générer quoi que ce soit.
-  N'applique jamais de règle basée sur un nom de contrat spécifique.
+Absolute rules:
+- Return strict JSON (no text outside JSON)
+- Be deterministic and structured
+- Do not hallucinate functions that are absent from the contract
+- JSON must be directly parseable by Python json.loads()
+- Always analyze the provided Solidity contract before generating anything.
+  Never apply rules based on a specific contract name.
 """
 
 _COVERAGE_RULES = """
-Consignes de couverture :
-- Privilégie la couverture de branches (if/else, require)
-- Inclus des tests de revert et des valeurs limites (0, max, entrée invalide)
-- Couvre tous les chemins d'exécution possibles détectés dans le contrat fourni
+Coverage guidance:
+- Prioritize branch coverage (if/else, require)
+- Include revert tests and boundary values (0, max, invalid input)
+- Cover all possible execution paths detected in the provided contract
 """
 
 _CODE_RULES = """
-RÈGLES CRITIQUES pour le code généré :
+CRITICAL RULES for generated code:
 
-── Généralité ──────────────────────────────────────────────────────────────
-- Analyse le contrat Solidity fourni et adapte les tests à SA structure réelle.
-- N'utilise JAMAIS de noms de contrats codés en dur dans les tests.
-  Toujours récupérer le nom exact depuis le fichier Solidity fourni.
-  Exemple correct   : ethers.getContractFactory("<NomExactDuContrat>")
-  Exemple incorrect : ethers.getContractFactory("SimpleSwap")  ← hardcodé, interdit
-- N'invente PAS de contrats auxiliaires qui n'existent pas dans le projet
-  (ex: MaliciousContract, ReentrancyAttacker, Attacker…).
-  Si tu as besoin d'un contrat helper, définis-le inline dans le fichier de test.
+-- Generality ----------------------------------------------------------------
+- Analyze the provided Solidity contract and adapt tests to ITS real structure.
+- NEVER use hardcoded contract names in tests.
+  Always derive the exact name from the provided Solidity file.
+  Correct example   : ethers.getContractFactory("<ExactContractName>")
+  Incorrect example : ethers.getContractFactory("SimpleSwap")  <- hardcoded, forbidden
+- Do NOT invent helper contracts that do not exist in the project
+  (e.g. MaliciousContract, ReentrancyAttacker, Attacker...).
+  If you need a helper contract, define it inline in the test file.
 
-── Visibilité des fonctions Solidity ────────────────────────────────────────
-- Avant de tester une fonction, vérifie sa visibilité dans le contrat Solidity.
-- Ne teste JAMAIS directement une fonction déclarée `private` ou `internal`.
-  Ces fonctions sont absentes de l'ABI compilée et provoqueront :
-  TypeError: contract.<fonction> is not a function
-- Teste les fonctions `private`/`internal` UNIQUEMENT de façon indirecte,
-  via les fonctions `public` ou `external` qui les appellent.
-  Exemple : une fonction `_random()` private → testée via `selectWinner()` public.
-- Si un test échoue avec "X is not a function" et que X est `private`/`internal`
-  dans le contrat, SUPPRIME ce test définitivement sans le remplacer.
+-- Solidity function visibility ----------------------------------------------
+- Before testing any function, verify its visibility in the Solidity contract.
+- NEVER test a function declared `private` or `internal` directly.
+  These functions are absent from the compiled ABI and will cause:
+  TypeError: contract.<function> is not a function
+- Test `private`/`internal` functions ONLY indirectly,
+  through `public` or `external` functions that call them.
+  Example: a private `_random()` function -> test it via public `selectWinner()`.
+- If a test fails with "X is not a function" and X is `private`/`internal`
+  in the contract, REMOVE that test permanently without replacement.
 
-── API Ethers.js / Hardhat ──────────────────────────────────────────────────
-- N'utilise PAS ethers.utils.* — utilise ethers.parseEther(), ethers.parseUnits() directement
-- N'utilise PAS .deployed() — utilise .waitForDeployment()
-- Utilise loadFixture depuis @nomicfoundation/hardhat-toolbox/network-helpers
-- N'utilise PAS tx.wait() dans les tests (Hardhat auto-mine en local)
-- Pour une fonction view/pure, ne traite jamais le retour comme une transaction
+-- Ethers.js / Hardhat API ---------------------------------------------------
+- Do NOT use ethers.utils.*; use ethers.parseEther(), ethers.parseUnits() directly
+- Do NOT use .deployed(); use .waitForDeployment()
+- Use loadFixture from @nomicfoundation/hardhat-toolbox/network-helpers
+- Do NOT use tx.wait() in tests (Hardhat auto-mines locally)
+- For view/pure functions, never treat return values as transactions
 
-── Assertions robustes sur structs / tuples Solidity ─────────────────────────
-- Les retours de mappings/structs via ethers peuvent être des tuples nommés partiellement.
-- N'écris pas d'assertion fragile du type expect(result.someArrayField).to.deep.equal([...])
-  sans vérifier que le champ est réellement exposé par nom dans l'ABI.
-- Attention : le getter public d'un mapping vers struct avec tableau dynamique
-  n'expose pas toujours ce tableau (ex: wasteIds). Dans ce cas, ne fais pas
-  d'assertion deep.equal sur ce champ via le getter du mapping.
-- Préfère des vérifications robustes :
-  1) utiliser un getter dédié s'il existe,
-  2) vérifier des champs scalaires stables (id, owner, status),
-  3) valider l'effet métier via événements et transitions d'état.
-- Si une assertion échoue pour cause de "undefined" sur un champ de struct, remplace
-  ce test par une assertion équivalente mais ABI-safe (sans dépendre d'un nom de champ non garanti).
+-- Robust assertions for Solidity structs / tuples ----------------------------
+- Mapping/struct returns via ethers may be partially named tuples.
+- Do not write fragile assertions like expect(result.someArrayField).to.deep.equal([...])
+  without verifying that the field is actually exposed by name in the ABI.
+- Warning: the public getter of a mapping to a struct with a dynamic array
+  may not expose that array (e.g. wasteIds). In that case, do not use
+  deep.equal assertions on that field via the mapping getter.
+- Prefer robust checks:
+  1) use a dedicated getter when available,
+  2) verify stable scalar fields (id, owner, status),
+  3) validate business behavior via events and state transitions.
+- If an assertion fails due to "undefined" on a struct field, replace
+  it with an equivalent ABI-safe assertion (without relying on non-guaranteed field names).
 
-── Contrats utilisant des interfaces de tokens (ERC20, ERC721, ERC1155…) ───
-- Si le contrat Solidity déclare une interface de token (IERC20, IERC721…)
-  mais N'HÉRITE PAS lui-même de ce standard, c'est un contrat consommateur
-  (ex: DEX, pool, marketplace, vault) — PAS un token.
-- Dans ce cas, déploie des contrats Mock du standard concerné pour simuler
-  les tokens dans les tests. Définis ces Mocks inline dans le fichier de test.
-- Ne jamais appeler les méthodes du standard (transfer, balanceOf, mint…)
-  directement sur le contrat consommateur.
-- Structure générique pour un contrat consommateur de tokens :
-    // 1. Déployer les mocks de tokens nécessaires
-    const MockToken = await ethers.getContractFactory("MockERC20");  // défini inline
+-- Contracts using token interfaces (ERC20, ERC721, ERC1155...) --------------
+- If the Solidity contract declares a token interface (IERC20, IERC721...)
+  but does NOT inherit from that standard itself, it is a consumer contract
+  (e.g. DEX, pool, marketplace, vault), NOT a token.
+- In that case, deploy mock contracts for the relevant standard to simulate
+  tokens in tests. Define these mocks inline in the test file.
+- Never call standard methods (transfer, balanceOf, mint...)
+  directly on the consumer contract.
+- Generic structure for a token consumer contract:
+    // 1. Deploy required token mocks
+    const MockToken = await ethers.getContractFactory("MockERC20");  // defined inline
     const tokenA = await MockToken.deploy(...constructorArgs);
-    // 2. Déployer le contrat principal avec le NOM EXACT du fichier Solidity
-    const ContractFactory = await ethers.getContractFactory("<NomExactDuContrat>");
+    // 2. Deploy main contract using the EXACT Solidity contract name
+    const ContractFactory = await ethers.getContractFactory("<ExactContractName>");
     const instance = await ContractFactory.deploy();
-- Le Mock doit implémenter uniquement les méthodes réellement utilisées
-  par le contrat principal (détecte-les dans le code Solidity fourni).
+- The mock must implement only the methods actually used
+  by the main contract (detect them from the provided Solidity code).
 """
 
 # ---------------------------------------------------------------------------
@@ -114,27 +114,26 @@ RÈGLES CRITIQUES pour le code généré :
 TEST_DESIGNER_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + """
-OBJECTIF : Concevoir une stratégie de tests complète pour le contrat Solidity fourni.
+OBJECTIVE: Design a complete testing strategy for the provided Solidity contract.
 
-IMPORTANT :
-- Analyse le contrat Solidity fourni pour identifier ses fonctions, modifiers,
-  events et structures de données réels.
-- Ne génère des cas de test QUE pour les fonctions `public` et `external`.
-- Ignore les fonctions `private` et `internal` — elles ne peuvent pas être
-  testées directement.
+IMPORTANT:
+- Analyze the provided Solidity contract to identify real functions, modifiers,
+  events, and data structures.
+- Generate test cases ONLY for `public` and `external` functions.
+- Ignore `private` and `internal` functions; they cannot be tested directly.
 
-FORMAT DE SORTIE (JSON uniquement) :
+OUTPUT FORMAT (JSON only):
 {{
-  "contract_name": "<nom exact du contrat dans le fichier Solidity>",
+  "contract_name": "<exact contract name from the Solidity file>",
   "test_suites": [
     {{
-      "suite_name": "<nom de la suite>",
+      "suite_name": "<suite name>",
       "test_cases": [
         {{
-          "test_title": "<should…>",
-          "target_function": "<fonction public/external>",
+          "test_title": "<should...>",
+          "target_function": "<public/external function>",
           "inputs": {{}},
-          "expected_behavior": "…"
+          "expected_behavior": "..."
         }}
       ]
     }}
@@ -143,113 +142,113 @@ FORMAT DE SORTIE (JSON uniquement) :
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-=== CONTEXTE STANDARDS ERC ===
+=== ERC STANDARDS CONTEXT ===
 {erc_context}
 
-=== USER STORY / EXIGENCES ===
+=== USER STORY / REQUIREMENTS ===
 {user_story}
 
-=== CONTRAT SOLIDITY ===
+=== SOLIDITY CONTRACT ===
 {contract_code}
 """),
 ])
 
 # ---------------------------------------------------------------------------
-# GENERATOR — première génération
+# GENERATOR - first generation
 # ---------------------------------------------------------------------------
 
 GENERATOR_NORMAL_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
-OBJECTIF : Écrire le fichier de tests JavaScript complet à partir de la stratégie fournie.
+OBJECTIVE: Write the complete JavaScript test file from the provided strategy.
 
-RAPPEL IMPORTANT avant de générer :
-1. Lis le contrat Solidity fourni et note le NOM EXACT du contrat.
-2. Liste toutes les fonctions `public`/`external` — seules celles-ci peuvent être testées.
-3. Ignore toutes les fonctions `private`/`internal`.
-4. Utilise le nom exact du contrat dans getContractFactory().
+IMPORTANT REMINDER before generating:
+1. Read the provided Solidity contract and identify the EXACT contract name.
+2. List all `public`/`external` functions; only these can be tested.
+3. Ignore all `private`/`internal` functions.
+4. Use the exact contract name in getContractFactory().
 
-FORMAT DE SORTIE :
-Retourne UNIQUEMENT le code JavaScript brut, sans aucun texte avant ou après,
-sans balises Markdown, sans JSON wrapper.
-Commence directement par la première ligne de code :
+OUTPUT FORMAT:
+Return ONLY raw JavaScript code, with no text before or after,
+no Markdown fences, no JSON wrapper.
+Start directly with the first code line:
 const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-=== 1. STANDARDS ERC ===
+=== 1. ERC STANDARDS ===
 {erc_context}
 
-=== 2. EXEMPLES ET BONNES PRATIQUES ===
+=== 2. EXAMPLES AND BEST PRACTICES ===
 {relevant_examples}
 
-=== 3. CONTRAT SOLIDITY ===
+=== 3. SOLIDITY CONTRACT ===
 {contract_code}
 
-=== 4. STRATÉGIE DE TESTS (JSON) ===
+=== 4. TEST STRATEGY (JSON) ===
 {test_design_json}
 """),
 ])
 
 # ---------------------------------------------------------------------------
-# GENERATOR — correcteur / itération
+# GENERATOR - corrector / iteration
 # ---------------------------------------------------------------------------
 
 GENERATOR_CORRECTOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + _COVERAGE_RULES + _CODE_RULES + """
-OBJECTIF : Corriger les tests JS existants pour les faire passer et améliorer
-la couverture d'après le rapport de l'Analyser.
+OBJECTIVE: Fix existing JS tests so they pass and improve
+coverage based on the Analyzer report.
 
-Règles de correction :
-- Garde tous les tests existants qui passent — ne les modifie pas.
-- Pour chaque test en échec, applique la procédure suivante :
+Fixing rules:
+- Keep all existing passing tests; do not modify them.
+- For each failing test, apply this procedure:
 
-  ÉTAPE 1 — Identifier la cause :
-    a) Si l'erreur est "X is not a function" :
-       → Cherche la fonction X dans le contrat Solidity fourni.
-       → Si X est déclarée `private` ou `internal` :
-          SUPPRIME ce test DÉFINITIVEMENT. Ne le remplace PAS.
-          Ne crée PAS de test alternatif pour cette fonction.
-       → Si X est `public`/`external` mais mal appelée :
-          Corrige l'appel (nom, paramètres, valeur envoyée).
-    b) Si l'erreur est une assertion échouée :
-       → Corrige la valeur attendue d'après le comportement réel du contrat.
-    c) Si l'erreur est un revert inattendu :
-       → Vérifie les préconditions (état, rôle, balance) et corrige le setup.
+  STEP 1 - Identify the root cause:
+    a) If the error is "X is not a function":
+       -> Look up function X in the provided Solidity contract.
+       -> If X is declared `private` or `internal`:
+          REMOVE this test PERMANENTLY. Do NOT replace it.
+          Do NOT create an alternative test for this function.
+       -> If X is `public`/`external` but called incorrectly:
+          Fix the call (name, parameters, sent value).
+    b) If the error is a failed assertion:
+       -> Fix expected values according to actual contract behavior.
+    c) If the error is an unexpected revert:
+       -> Check preconditions (state, role, balance) and fix setup.
 
-  ÉTAPE 2 — Appliquer la correction minimale :
-    → Ne modifie que ce qui est nécessaire pour corriger l'échec.
-    → Ne réécris pas les tests qui passent déjà.
+  STEP 2 - Apply minimal correction:
+    -> Modify only what is needed to fix the failure.
+    -> Do not rewrite tests that already pass.
 
-- Ajoute les tests manquants signalés dans le rapport de couverture.
-- N'utilise JAMAIS le nom d'un contrat codé en dur — utilise le nom exact
-  du fichier Solidity fourni.
+- Add missing tests reported by the coverage report.
+- NEVER use a hardcoded contract name; use the exact name
+  from the provided Solidity file.
 
-FORMAT DE SORTIE :
-Retourne UNIQUEMENT le code JavaScript brut corrigé et complet,
-sans aucun texte avant ou après, sans balises Markdown, sans JSON wrapper.
-Commence directement par :
+OUTPUT FORMAT:
+Return ONLY corrected and complete raw JavaScript code,
+with no text before or after, no Markdown fences, no JSON wrapper.
+Start directly with:
 const {{ expect }} = require("chai");
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-=== 1. STANDARDS ERC ===
+=== 1. ERC STANDARDS ===
 {erc_context}
 
-=== 2. EXEMPLES ET BONNES PRATIQUES ===
+=== 2. EXAMPLES AND BEST PRACTICES ===
 {relevant_examples}
 
-=== 3. CONTRAT SOLIDITY ===
+=== 3. SOLIDITY CONTRACT ===
 {contract_code}
 
-=== 4. CODE DE TESTS ACTUEL ===
+=== 4. CURRENT TEST CODE ===
 {test_code}
 
-=== 5. TESTS EN ÉCHEC ===
+=== 5. FAILING TESTS ===
 {failed_tests_json}
 
-=== 6. RAPPORT DE L'ANALYSER ===
+=== 6. ANALYZER REPORT ===
 {analyzer_json}
 """),
 ])
@@ -261,24 +260,24 @@ const {{ expect }} = require("chai");
 ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + _COVERAGE_RULES + """
-OBJECTIF : Analyser les tests et identifier les échecs, les fonctions/branches
-non couvertes et les cas limites manquants.
+OBJECTIVE: Analyze tests and identify failures, uncovered
+functions/branches, and missing edge cases.
 
-IMPORTANT :
-- Pour chaque test en échec, identifie si la cause est :
-  * CORRIGEABLE   : mauvais appel, mauvaise assertion, mauvais setup
-  * NON_CORRIGEABLE : fonction `private`/`internal` testée directement,
-                      contrat auxiliaire inexistant et non créable inline
-- Indique clairement le type dans le champ "fix".
+IMPORTANT:
+- For each failing test, identify whether the cause is:
+  * FIXABLE     : wrong call, wrong assertion, wrong setup
+  * NON_FIXABLE : directly testing a `private`/`internal` function,
+                  missing helper contract that cannot be created inline
+- Indicate the type clearly in the "fix" field.
 
-FORMAT DE SORTIE :
+OUTPUT FORMAT:
 {{
   "failures": [
     {{
-      "test": "<nom du test>",
-      "reason": "<pourquoi il échoue>",
-      "type": "CORRIGEABLE|NON_CORRIGEABLE",
-      "fix": "<comment corriger, ou SUPPRIMER si NON_CORRIGEABLE>"
+      "test": "<test name>",
+      "reason": "<why it fails>",
+      "type": "FIXABLE|NON_FIXABLE",
+      "fix": "<how to fix, or REMOVE if NON_FIXABLE>"
     }}
   ],
   "missing_coverage": {{
@@ -291,10 +290,10 @@ FORMAT DE SORTIE :
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-Contrat      : {contract_code}
-Code de test : {test_code}
-Rapport test : {mochawesome_json}
-Couverture   : {coverage_json}
+Contract    : {contract_code}
+Test code   : {test_code}
+Test report : {mochawesome_json}
+Coverage    : {coverage_json}
 """),
 ])
 
@@ -305,31 +304,31 @@ Couverture   : {coverage_json}
 EVALUATOR_PROMPT = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
         _GLOBAL_RULES + """
-OBJECTIF : Décider si le pipeline doit continuer à corriger ou s'arrêter.
+OBJECTIVE: Decide whether the pipeline should keep fixing or stop.
 
-CRITÈRES pour relancer la génération (decision = "regenerate") :
-  - Il reste des tests en échec de type CORRIGEABLE
-  - Couverture de branches < 80 %
-  - Couverture des instructions < 85 %
+CRITERIA to restart generation (decision = "regenerate"):
+  - There are still FIXABLE failing tests
+  - Branch coverage < 80%
+  - Statement coverage < 85%
 
-CRITÈRES pour arrêter (decision = "stop") :
-  - Tous les tests passent (failures = 0)
-  - OU couverture statements >= 85% ET branches >= 80% ET failures = 0
-  - OU tous les échecs restants sont de type NON_CORRIGEABLE :
-      * Fonctions `private`/`internal` testées directement
-      * Contrats auxiliaires inexistants et non créables inline
-      * Erreur structurelle indépendante du code de test
-  - OU stagnation détectée (score identique sur 2 itérations consécutives)
+CRITERIA to stop (decision = "stop"):
+  - All tests pass (failures = 0)
+  - OR statement coverage >= 85% AND branches >= 80% AND failures = 0
+  - OR all remaining failures are NON_FIXABLE:
+      * `private`/`internal` functions tested directly
+      * missing helper contracts that cannot be created inline
+      * structural error independent of test code
+  - OR stagnation detected (same score across 2 consecutive iterations)
 
-IMPORTANT : Ne jamais forcer la régénération si les seuls échecs restants
-sont de type NON_CORRIGEABLE — cela provoquerait une boucle infinie.
+IMPORTANT: Never force regeneration if the only remaining failures
+are NON_FIXABLE; this would create an infinite loop.
 
-FORMAT DE SORTIE :
-{{ "decision": "stop|regenerate", "reason": "<explication claire>" }}
+OUTPUT FORMAT:
+{{ "decision": "stop|regenerate", "reason": "<clear explanation>" }}
 """
     ),
     HumanMessagePromptTemplate.from_template("""
-Résumé d'exécution : {execution_summary}
-Rapport Analyser  : {analyzer_json}
+Execution summary : {execution_summary}
+Analyzer report   : {analyzer_json}
 """),
 ])

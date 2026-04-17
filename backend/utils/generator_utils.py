@@ -16,17 +16,16 @@ def _is_unusable_rag_context(context: str) -> bool:
     normalized = (context or "").strip().lower()
     return normalized in {
         "",
-        "contexte erc indisponible.",
-        "aucun contexte rag disponible.",
-        "aucun contexte trouve.",
-        "aucun contexte trouvé.",
+        "erc context unavailable.",
+        "no rag context available.",
+        "no context found.",
     }
 
 
 def _get_rag_context(state: dict) -> tuple[str, list[str]]:
     rag_cache = state.get("rag_cache") if isinstance(state, dict) else None
     if isinstance(rag_cache, dict) and rag_cache.get("context"):
-        context = str(rag_cache.get("context", "Aucun contexte trouve."))
+        context = str(rag_cache.get("context", "No context found."))
         detected_ercs = rag_cache.get("detected_ercs", [])
         cache_collection = str(rag_cache.get("collection_name", "")).strip()
         if not isinstance(detected_ercs, list):
@@ -43,13 +42,13 @@ def _get_rag_context(state: dict) -> tuple[str, list[str]]:
         # Collection dediee au generator: data_rag (contrats+tests d'exemples).
         rag = AdvancedRAG(collection_name=GENERATOR_RAG_COLLECTION)
         result = rag.retrieve(state.get("contract_code", ""))
-        context = result.get("context", "Aucun contexte trouve.")
+        context = result.get("context", "No context found.")
         detected_ercs = result.get("detected_ercs", [])
         print("[Generator] RAG generator OK")
         return context, detected_ercs
     except Exception as exc:
         print(f"[Generator] RAG echoue : {exc}")
-        return "Aucun contexte RAG disponible.", []
+        return "No RAG context available.", []
 
 def _extract_block(code: str, open_brace_pos: int) -> tuple[int, int] | None:
     depth = 0

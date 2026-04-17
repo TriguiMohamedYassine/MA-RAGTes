@@ -100,6 +100,22 @@ export async function activate(context: vscode.ExtensionContext) {
         runNowCommand
     );
 
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async event => {
+        if (!event.affectsConfiguration('solidtest.apiUrl')) {
+            return;
+        }
+
+        const updatedConfig = vscode.workspace.getConfiguration('solidtest');
+        apiClient = new ApiClient(updatedConfig.get('apiUrl', DEFAULT_API_URL));
+        historyProvider.setApiClient(apiClient);
+
+        if (SolidTestPanel.currentPanel) {
+            SolidTestPanel.currentPanel.setApiClient(apiClient);
+        }
+
+        await refreshDashboardSnapshot(context);
+    }));
+
     statusBar.showState('idle', 'SolidTest prêt');
     void refreshDashboardSnapshot(context);
     vscode.window.showInformationMessage('SolidTest prêt. Ouvrez un fichier .sol pour lancer un run.');
@@ -109,6 +125,10 @@ async function handleSubmitContract(
     context: vscode.ExtensionContext,
     payload?: vscode.Uri | { uri?: string; contractPath?: string; environment?: string }
 ) {
+    const panel = SolidTestPanel.createOrShow(context.extensionUri, apiClient);
+    panel.show();
+    panel.focusSection('status');
+
     try {
         const uri = payload instanceof vscode.Uri
             ? payload
@@ -119,6 +139,7 @@ async function handleSubmitContract(
                 : undefined;
         const contract = await resolveContractContext(context, uri);
         if (!contract) {
+            panel.setError('Aucun contrat Solidity sélectionné.');
             return;
         }
 
@@ -128,8 +149,17 @@ async function handleSubmitContract(
         const environment = explicitEnvironment || await resolveEnvironment(context);
         if (!environment) {
             statusBar.showState('idle', 'Soumission annulée');
+            panel.setError('Soumission annulée. Aucun environnement sélectionné.');
             return;
         }
+
+        panel.setSelectedEnvironment(environment);
+        panel.setActiveContract({
+            name: contract.contractName,
+            path: contract.contractPath,
+            size: '-',
+            modified: '-'
+        });
 
         statusBar.showState('submitting', `Soumission de ${contract.contractName}...`);
 
@@ -144,6 +174,7 @@ async function handleSubmitContract(
             const message = response.message || 'Soumission impossible';
             vscode.window.showErrorMessage(message);
             statusBar.showState('error', message);
+            panel.setError(message);
             await refreshDashboardSnapshot(context);
             return;
         }
@@ -151,16 +182,6 @@ async function handleSubmitContract(
         await context.workspaceState.update(LAST_ENVIRONMENT_KEY, environment);
         statusBar.showState('running', `Run ${shortRunId(response.run_id)} en cours`);
 
-        const panel = SolidTestPanel.createOrShow(context.extensionUri, apiClient, response.run_id);
-        panel.show();
-        panel.focusSection('status');
-        panel.setSelectedEnvironment(environment);
-        panel.setActiveContract({
-            name: contract.contractName,
-            path: contract.contractPath,
-            size: '-',
-            modified: '-'
-        });
         panel.setRunFocus(response.run_id);
 
         vscode.window.showInformationMessage(`Run lancé: ${response.run_id}`);
@@ -171,6 +192,7 @@ async function handleSubmitContract(
         const message = formatError(error, DEFAULT_API_URL, 'Impossible de soumettre le contrat');
         vscode.window.showErrorMessage(message);
         statusBar.showState('error', message);
+        panel.setError(message);
         await refreshDashboardSnapshot(context);
     }
 }

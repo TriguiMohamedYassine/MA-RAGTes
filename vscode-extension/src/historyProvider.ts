@@ -16,6 +16,11 @@ export class HistoryProvider implements vscode.TreeDataProvider<RunItem>, vscode
         this.startAutoRefresh();
     }
 
+    setApiClient(apiClient: ApiClient): void {
+        this.apiClient = apiClient;
+        void this.refresh();
+    }
+
     async refresh(): Promise<void> {
         await this.loadHistory();
         this._onDidChangeTreeData.fire(undefined);

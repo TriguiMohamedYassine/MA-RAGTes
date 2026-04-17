@@ -32,7 +32,7 @@ def test_designer_node(state: dict) -> dict:
     try:
         rag = AdvancedRAG(collection_name="erc_standards")
         rag_result   = rag.retrieve(contract_code)
-        erc_context  = rag_result.get("context", "Aucun standard détecté.")
+        erc_context  = rag_result.get("context", "No standard detected.")
         rag_cache    = {
             "context":       erc_context,
             "detected_ercs": rag_result.get("detected_ercs", []),
@@ -40,7 +40,7 @@ def test_designer_node(state: dict) -> dict:
         }
     except Exception as exc:
         print(f"[Test Designer] RAG ERC échoué : {exc}")
-        erc_context = "Contexte ERC indisponible."
+        erc_context = "ERC context unavailable."
         rag_cache   = {
             "context": erc_context,
             "detected_ercs": [],

@@ -2,11 +2,21 @@
   "name": "vscode-solidtest",
   "displayName": "SolidTest",
   "description": "Plugin VS Code pour générer automatiquement des tests pour smart contracts Solidity",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "publisher": "solidtest",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.60.0"
   },
+  "files": [
+    "out/**",
+    "node_modules/**",
+    "media/**",
+    "webview/**",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "categories": [
     "Other",
     "Testing",
@@ -190,6 +200,7 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
+    "package": "npx @vscode/vsce package --allow-missing-repository",
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
