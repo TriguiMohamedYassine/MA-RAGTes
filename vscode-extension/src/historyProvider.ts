@@ -27,7 +27,7 @@ export class HistoryProvider implements vscode.TreeDataProvider<RunItem>, vscode
     }
 
     private startAutoRefresh(): void {
-        const config = vscode.workspace.getConfiguration('solidtest');
+        const config = vscode.workspace.getConfiguration('maragtes');
         if (config.get('autoRefresh', true)) {
             const interval = config.get('refreshInterval', 5000);
             this.refreshInterval = setInterval(() => {
@@ -41,7 +41,7 @@ export class HistoryProvider implements vscode.TreeDataProvider<RunItem>, vscode
             this.runs = await this.apiClient.getHistory();
             this.lastError = null;
         } catch (error) {
-            this.lastError = error instanceof Error ? error.message : 'API inaccessible';
+            this.lastError = error instanceof Error ? error.message : 'API unreachable';
             this.runs = [];
         }
     }
@@ -54,15 +54,15 @@ export class HistoryProvider implements vscode.TreeDataProvider<RunItem>, vscode
         if (!element) {
             if (this.lastError) {
                 return Promise.resolve([
-                    new RunItem('API inaccessible', 'error', 0, undefined, undefined, undefined, undefined, this.lastError || undefined)
+                    new RunItem('API unreachable', 'error', 0, undefined, undefined, undefined, undefined, this.lastError || undefined)
                 ]);
             }
 
-            // N'afficher que les groupes avec au moins 1 run
+            // Show only groups that contain at least one run.
             const groups = [
-                new RunItem('En cours', 'running', this.runs.filter(r => r.status === 'running').length),
-                new RunItem('Terminés', 'done', this.runs.filter(r => r.status === 'done').length),
-                new RunItem('Échoués', 'error', this.runs.filter(r => r.status === 'error').length)
+                new RunItem('Running', 'running', this.runs.filter(r => r.status === 'running').length),
+                new RunItem('Completed', 'done', this.runs.filter(r => r.status === 'done').length),
+                new RunItem('Failed', 'error', this.runs.filter(r => r.status === 'error').length)
             ].filter(item => item.count > 0);
 
             return Promise.resolve(groups);
@@ -118,16 +118,16 @@ export class RunItem extends vscode.TreeItem {
         if (contextValue === 'run') {
             this.contextValue = status || 'run';
             this.description = `${contractName || 'UnknownContract'} · ${this.formatDate(startedAt)}`;
-            this.tooltip = `Run ID: ${runId}\nContrat: ${contractName || 'UnknownContract'}\nStatus: ${status}${error ? `\nErreur: ${error}` : ''}`;
+            this.tooltip = `Run ID: ${runId}\nContract: ${contractName || 'UnknownContract'}\nStatus: ${status}${error ? `\nError: ${error}` : ''}`;
             this.collapsibleState = vscode.TreeItemCollapsibleState.None;
             this.command = {
-                command: 'solidtest.viewResults',
-                title: 'Voir les résultats',
+                command: 'maragtes.viewResults',
+                title: 'View results',
                 arguments: [this]
             };
         } else if (contextValue === 'error' && runId === undefined) {
             this.contextValue = 'error';
-            this.description = error || 'Impossible de charger l’historique';
+            this.description = error || 'Failed to load history';
             this.collapsibleState = vscode.TreeItemCollapsibleState.None;
         } else {
             this.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
@@ -138,7 +138,7 @@ export class RunItem extends vscode.TreeItem {
 
     private formatDate(value?: string): string {
         if (!value) {
-            return 'Date inconnue';
+            return 'Unknown date';
         }
 
         const parsed = new Date(value);
@@ -151,10 +151,10 @@ export class RunItem extends vscode.TreeItem {
 
     private getIcon(): vscode.ThemeIcon {
         switch (this.label) {
-            case 'En cours':   return new vscode.ThemeIcon('sync');
-            case 'Terminés':   return new vscode.ThemeIcon('check');
-            case 'Échoués':    return new vscode.ThemeIcon('error');
-            case 'API inaccessible': return new vscode.ThemeIcon('warning');
+            case 'Running':   return new vscode.ThemeIcon('sync');
+            case 'Completed': return new vscode.ThemeIcon('check');
+            case 'Failed': return new vscode.ThemeIcon('error');
+            case 'API unreachable': return new vscode.ThemeIcon('warning');
             default:           return new vscode.ThemeIcon('file');
         }
     }
@@ -168,3 +168,5 @@ export class RunItem extends vscode.TreeItem {
         }
     }
 }
+
+

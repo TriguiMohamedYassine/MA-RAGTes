@@ -33,9 +33,19 @@ if str(_ROOT) not in sys.path:
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import set_key
 
 from backend.workflows.orchestrator import build_graph
-from backend.config.settings import OUTPUT_DIR, CONTRACTS_DIR
+from backend.config.settings import (
+    BASE_DIR,
+    OUTPUT_DIR,
+    CONTRACTS_DIR,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_STATEMENT_COVERAGE_THRESHOLD,
+    DEFAULT_BRANCH_COVERAGE_THRESHOLD,
+    has_mistral_api_key,
+    set_mistral_api_key,
+)
 from backend.utils.llm import reset_llm_stats, get_llm_stats
 
 # ---------------------------------------------------------------------------
@@ -235,11 +245,18 @@ class RunRequest(BaseModel):
     contract_code: str
     contract_name: str = ""
     user_story: str = ""
+    max_retries: int = DEFAULT_MAX_RETRIES
+    statement_coverage_threshold: int = DEFAULT_STATEMENT_COVERAGE_THRESHOLD
+    branch_coverage_threshold: int = DEFAULT_BRANCH_COVERAGE_THRESHOLD
 
 class RunResponse(BaseModel):
     run_id: str
     status: str
     message: str
+
+
+class LlmApiKeyRequest(BaseModel):
+    api_key: str
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -317,6 +334,9 @@ async def execute_pipeline(run_id: str, req: RunRequest) -> None:
             "contract_code":   req.contract_code,
             "source_filename": (req.contract_name + ".sol") if req.contract_name else "",
             "user_story":      req.user_story,
+            "max_retries":     req.max_retries,
+            "statement_coverage_threshold": req.statement_coverage_threshold,
+            "branch_coverage_threshold":     req.branch_coverage_threshold,
             "iterations":      0,
         }):
             # chunk = { node_name: {...state updates...} }
@@ -381,6 +401,7 @@ async def root():
             "GET  /api/run/{run_id}",
             "GET  /api/history",
             "GET  /api/results/{run_id}",
+            "POST /api/settings/llm-key",
             "DELETE /api/history",
         ],
     }
@@ -505,6 +526,21 @@ async def clear_history():
     return {"deleted": count, "message": "Historique vidé."}
 
 
+@app.post("/api/settings/llm-key")
+async def save_llm_key(req: LlmApiKeyRequest):
+    """Enregistre la clé API LLM dans .env et la charge en mémoire runtime."""
+    api_key = (req.api_key or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="api_key ne peut pas être vide.")
+
+    env_path = BASE_DIR / ".env"
+    env_path.touch(exist_ok=True)
+    set_key(str(env_path), "MISTRAL_API_KEY", api_key)
+    set_mistral_api_key(api_key)
+
+    return {"status": "ok", "message": "Clé API LLM enregistrée avec succès."}
+
+
 @app.get("/api/health")
 async def health():
     """Endpoint de santé pour vérifier que l'API tourne."""
@@ -514,5 +550,6 @@ async def health():
         "runs_active":  sum(1 for r in runs.values() if r["status"] == "running"),
         "runs_done":    sum(1 for r in runs.values() if r["status"] == "done"),
         "runs_error":   sum(1 for r in runs.values() if r["status"] == "error"),
+        "llm_api_key_configured": has_mistral_api_key(),
     }
 

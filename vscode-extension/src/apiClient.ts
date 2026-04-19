@@ -4,6 +4,7 @@ export interface ContractSubmission {
     contractCode: string;
     contractName: string;
     environment: string;
+    userStory: string;
 }
 
 export interface RunResponse {
@@ -76,7 +77,8 @@ export class ApiClient {
             const response = await this.client.post('/api/run', {
                 contract_code: submission.contractCode,
                 contract_name: submission.contractName,
-                environment: submission.environment
+                environment: submission.environment,
+                user_story: submission.userStory
             });
             return {
                 run_id: response.data.run_id,
@@ -87,7 +89,7 @@ export class ApiClient {
             return {
                 run_id: '',
                 status: 'error',
-                message: this.formatError(error, 'Impossible de soumettre le contrat')
+                message: this.formatError(error, 'Failed to submit contract')
             };
         }
     }
@@ -97,7 +99,7 @@ export class ApiClient {
             const response = await this.client.get(`/api/run/${runId}`);
             return response.data;
         } catch (error: any) {
-            throw new Error(this.formatError(error, 'Impossible de récupérer le statut du run'));
+            throw new Error(this.formatError(error, 'Failed to fetch run status'));
         }
     }
 
@@ -106,7 +108,7 @@ export class ApiClient {
             const response = await this.client.get('/api/history');
             return response.data || [];
         } catch (error: any) {
-            throw new Error(this.formatError(error, 'Impossible de récupérer l’historique'));
+            throw new Error(this.formatError(error, 'Failed to fetch history'));
         }
     }
 
@@ -115,7 +117,7 @@ export class ApiClient {
             const response = await this.client.get(`/api/results/${runId}`);
             return response.data;
         } catch (error: any) {
-            throw new Error(this.formatError(error, 'Impossible de récupérer les résultats'));
+            throw new Error(this.formatError(error, 'Failed to fetch results'));
         }
     }
 
@@ -129,7 +131,7 @@ export class ApiClient {
             await this.client.delete('/api/history');
             return true;
         } catch (error: any) {
-            throw new Error(this.formatError(error, 'Impossible de supprimer l’historique'));
+            throw new Error(this.formatError(error, 'Failed to clear history'));
         }
     }
 
@@ -166,7 +168,7 @@ export class ApiClient {
                 : axiosError.response?.statusText;
 
             if (axiosError.code === 'ECONNREFUSED' || axiosError.code === 'ERR_NETWORK') {
-                return `${fallback} - API inaccessible sur ${this.baseUrl}`;
+                return `${fallback} - API unreachable at ${this.baseUrl}`;
             }
 
             if (responseMessage) {
@@ -183,3 +185,5 @@ export class ApiClient {
         return fallback;
     }
 }
+
+

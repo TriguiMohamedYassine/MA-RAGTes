@@ -21,8 +21,8 @@ export interface DashboardSnapshot {
     selectedRunId?: string;
 }
 
-export class SolidTestPanel {
-    public static currentPanel: SolidTestPanel | undefined;
+export class maragtesPanel {
+    public static currentPanel: maragtesPanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
@@ -54,17 +54,17 @@ export class SolidTestPanel {
         apiClient: ApiClient,
         runId?: string,
         isDashboard: boolean = false
-    ): SolidTestPanel {
+    ): maragtesPanel {
         const column = vscode.ViewColumn.Two;
 
-        if (SolidTestPanel.currentPanel) {
-            SolidTestPanel.currentPanel._panel.reveal(column);
-            return SolidTestPanel.currentPanel;
+        if (maragtesPanel.currentPanel) {
+            maragtesPanel.currentPanel._panel.reveal(column);
+            return maragtesPanel.currentPanel;
         }
 
         const panel = vscode.window.createWebviewPanel(
-            'solidtest',
-            isDashboard ? 'SolidTest Dashboard' : runId ? `Run: ${runId.substring(0, 8)}...` : 'SolidTest',
+            'maragtes',
+            isDashboard ? 'MA-RAGTes Dashboard' : runId ? `Run: ${runId.substring(0, 8)}...` : 'MA-RAGTes',
             column,
             {
                 enableScripts: true,
@@ -73,8 +73,8 @@ export class SolidTestPanel {
             }
         );
 
-        SolidTestPanel.currentPanel = new SolidTestPanel(panel, extensionUri, apiClient, runId, isDashboard);
-        return SolidTestPanel.currentPanel;
+        maragtesPanel.currentPanel = new maragtesPanel(panel, extensionUri, apiClient, runId, isDashboard);
+        return maragtesPanel.currentPanel;
     }
 
     public show() {
@@ -159,24 +159,27 @@ export class SolidTestPanel {
             case 'select-contract':
                 await this.handleSelectContract();
                 break;
+            case 'select-user-story':
+                await this.handleSelectUserStory();
+                break;
             case 'submit-contract':
-                await vscode.commands.executeCommand('solidtest.submitContract', message);
+                await vscode.commands.executeCommand('maragtes.submitFromPanel', message);
                 break;
             case 'open-dashboard':
-                await vscode.commands.executeCommand('solidtest.openDashboard');
+                await vscode.commands.executeCommand('maragtes.openDashboard');
                 break;
             case 'open-latest-result':
-                await vscode.commands.executeCommand('solidtest.openLatestResult');
+                await vscode.commands.executeCommand('maragtes.openLatestResult');
                 break;
             case 'refresh-history':
-                await vscode.commands.executeCommand('solidtest.refresh');
+                await vscode.commands.executeCommand('maragtes.refresh');
                 break;
             case 'view-history':
-                await vscode.commands.executeCommand('solidtest.viewHistory');
+                await vscode.commands.executeCommand('maragtes.viewHistory');
                 break;
             case 'select-run':
                 if (message.runId) {
-                    await vscode.commands.executeCommand('solidtest.viewResults', { runId: message.runId });
+                    await vscode.commands.executeCommand('maragtes.viewResults', { runId: message.runId });
                 }
                 break;
             case 'open-generated-test':
@@ -210,7 +213,7 @@ export class SolidTestPanel {
             this.apiClient.checkApiHealth()
         ]);
 
-        const config = vscode.workspace.getConfiguration('solidtest');
+        const config = vscode.workspace.getConfiguration('maragtes');
         const apiUrl = config.get('apiUrl', 'http://localhost:8000');
         const frontendUrl = config.get('frontendUrl', 'http://localhost:5173');
         const lastEnvironment = config.get('defaultEnvironment', 'simulation');
@@ -241,7 +244,7 @@ export class SolidTestPanel {
             canSelectMany: false,
             canSelectFiles: true,
             canSelectFolders: false,
-            openLabel: 'Choisir ce contrat',
+            openLabel: 'Select contract',
             filters: {
                 Solidity: ['sol']
             }
@@ -258,10 +261,33 @@ export class SolidTestPanel {
         });
     }
 
+    private async handleSelectUserStory() {
+        const picked = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            canSelectFiles: true,
+            canSelectFolders: false,
+            openLabel: 'Select user story file',
+            filters: {
+                Text: ['md', 'txt', 'json']
+            }
+        });
+
+        if (!picked || picked.length === 0) {
+            return;
+        }
+
+        const content = await vscode.workspace.fs.readFile(picked[0]);
+        this.postMessage({
+            type: 'user-story-selected',
+            filePath: picked[0].fsPath,
+            text: Buffer.from(content).toString('utf-8')
+        });
+    }
+
     private async handleOpenGeneratedTest() {
         const candidates = await vscode.workspace.findFiles('**/generated_test.js', '**/{node_modules,.git}/**', 20);
         if (candidates.length === 0) {
-            vscode.window.showInformationMessage('generated_test.js introuvable dans le workspace.');
+            vscode.window.showInformationMessage('generated_test.js not found in the workspace.');
             return;
         }
 
@@ -273,7 +299,7 @@ export class SolidTestPanel {
     private async handleDownloadReport(runId?: string) {
         const targetRunId = runId || this.runId;
         if (!targetRunId) {
-            vscode.window.showInformationMessage('Aucun run disponible pour générer un rapport.');
+            vscode.window.showInformationMessage('No run is available to generate a report.');
             return;
         }
 
@@ -285,17 +311,17 @@ export class SolidTestPanel {
         const reportText = this.buildReportMarkdown(targetRunId, results, status);
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceRoot) {
-            vscode.window.showWarningMessage('Impossible de créer le rapport sans workspace ouvert.');
+            vscode.window.showWarningMessage('Cannot create a report without an open workspace.');
             return;
         }
 
-        const outputUri = vscode.Uri.joinPath(workspaceRoot, 'outputs', `solidtest-report-${targetRunId}.md`);
+        const outputUri = vscode.Uri.joinPath(workspaceRoot, 'outputs', `maragtes-report-${targetRunId}.md`);
         await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceRoot, 'outputs'));
         await vscode.workspace.fs.writeFile(outputUri, Buffer.from(reportText, 'utf-8'));
 
         const document = await vscode.workspace.openTextDocument(outputUri);
         await vscode.window.showTextDocument(document, { preview: false });
-        vscode.window.showInformationMessage(`Rapport exporté dans ${vscode.workspace.asRelativePath(outputUri)}`);
+        vscode.window.showInformationMessage(`Report exported to ${vscode.workspace.asRelativePath(outputUri)}`);
     }
 
     private async handleOpenContractFile(filePath: string) {
@@ -307,16 +333,16 @@ export class SolidTestPanel {
     private async handleCopyTestCode(text: string) {
         const normalized = typeof text === 'string' ? text.trim() : '';
         if (!normalized) {
-            vscode.window.showWarningMessage('Aucun code de test à copier.');
+            vscode.window.showWarningMessage('No test code to copy.');
             return;
         }
 
         await vscode.env.clipboard.writeText(text);
-        vscode.window.showInformationMessage('Code de test copié dans le presse-papiers.');
+        vscode.window.showInformationMessage('Test code copied to clipboard.');
     }
 
     private async handleSaveSettings(apiUrl?: string, frontendUrl?: string) {
-        const config = vscode.workspace.getConfiguration('solidtest');
+        const config = vscode.workspace.getConfiguration('maragtes');
 
         if (typeof apiUrl === 'string' && apiUrl.trim()) {
             await config.update('apiUrl', apiUrl.trim(), vscode.ConfigurationTarget.Global);
@@ -330,7 +356,7 @@ export class SolidTestPanel {
     }
 
     private async handleGetSettings() {
-        const config = vscode.workspace.getConfiguration('solidtest');
+        const config = vscode.workspace.getConfiguration('maragtes');
         const apiUrl = config.get('apiUrl', 'http://localhost:8000');
         const frontendUrl = config.get('frontendUrl', 'http://localhost:3000');
         const defaultEnvironment = config.get('defaultEnvironment', 'simulation');
@@ -377,7 +403,7 @@ export class SolidTestPanel {
         const contractName = results?.contract_name || status?.contract_name || 'UnknownContract';
 
         return [
-            `# SolidTest Report`,
+            `# MA-RAGTes Report`,
             '',
             `- Run ID: ${runId}`,
             `- Contract: ${contractName}`,
@@ -434,25 +460,26 @@ export class SolidTestPanel {
         const jsUri = this._panel.webview.asWebviewUri(jsPath);
 
         return `<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this._panel.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this._panel.webview.cspSource} https: data:;">
     <link rel="stylesheet" href="${cssUri}">
-    <title>SolidTest</title>
+    <title>MA-RAGTes</title>
 </head>
 <body>
     <div class="app-shell">
         <header class="hero">
             <div>
-                <div class="eyebrow">SolidTest</div>
+                <div class="eyebrow">MA-RAGTes</div>
                 <h1>Smart contract testing dashboard</h1>
-                <p class="hero-copy">Soumettez un contrat, suivez le pipeline en direct et relisez le dernier résultat sans quitter VS Code.</p>
+                <p class="hero-copy">Submit a contract, track the pipeline live, and review results without leaving VS Code.</p>
             </div>
             <div class="hero-actions">
                 <button id="selectContractBtn" class="btn btn-secondary">Select contract</button>
                 <button id="submitBtn" class="btn btn-primary">Submit</button>
+                <button id="openDashboardBtn" class="btn btn-secondary" type="button">Open Browser</button>
             </div>
         </header>
 
@@ -490,8 +517,13 @@ export class SolidTestPanel {
                         <option value="mainnet">mainnet</option>
                     </select>
                 </div>
-                <div class="inline-actions">
-                    <button id="latestResultBtn" class="btn btn-secondary" type="button">Open latest result</button>
+                <div class="form-row">
+                    <label for="userStoryInput">User story (optional)</label>
+                    <textarea id="userStoryInput" rows="5" placeholder="Paste your user story here, or load it from a file."></textarea>
+                    <div class="user-story-actions">
+                        <button id="selectUserStoryBtn" class="btn btn-secondary" type="button">Load user story file</button>
+                        <button id="latestResultBtn" class="btn btn-secondary" type="button">Open latest result</button>
+                    </div>
                 </div>
             </article>
 
@@ -505,9 +537,6 @@ export class SolidTestPanel {
                 </div>
                 <div id="quickSummary" class="summary-grid"></div>
                 <div id="resultError" class="error-box hidden"></div>
-                <div class="inline-actions">
-                    <button id="openDashboardBtn" class="btn btn-secondary" type="button">Open browser dashboard</button>
-                </div>
             </article>
         </section>
 
@@ -556,26 +585,6 @@ export class SolidTestPanel {
             <pre id="runDetailsLogs" class="log-block"></pre>
         </section>
 
-        <section id="settingsSection" class="card">
-            <div class="card-header">
-                <div>
-                    <div class="card-kicker">Configuration</div>
-                    <h2>API and frontend</h2>
-                </div>
-                <button id="saveSettingsBtn" class="btn btn-primary" type="button">Save</button>
-            </div>
-            <div class="settings-grid">
-                <div class="form-row">
-                    <label for="apiUrl">API URL</label>
-                    <input id="apiUrl" type="text" placeholder="http://localhost:8000" />
-                </div>
-                <div class="form-row">
-                    <label for="frontendUrl">Frontend URL</label>
-                    <input id="frontendUrl" type="text" placeholder="http://localhost:5173" />
-                </div>
-            </div>
-            <div id="dashboardNotice" class="notice"></div>
-        </section>
     </div>
 
     <script nonce="${nonce}" src="${jsUri}"></script>
@@ -593,7 +602,7 @@ export class SolidTestPanel {
     }
 
     public dispose() {
-        SolidTestPanel.currentPanel = undefined;
+        maragtesPanel.currentPanel = undefined;
         this._panel.dispose();
         while (this._disposables.length) {
             const x = this._disposables.pop();
@@ -603,3 +612,5 @@ export class SolidTestPanel {
         }
     }
 }
+
+

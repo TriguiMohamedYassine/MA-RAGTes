@@ -16,7 +16,7 @@ from backend.agents.generator      import generator_normal_node, generator_corre
 from backend.agents.executor       import executor_node
 from backend.agents.analyzer       import analyzer_node
 from backend.agents.evaluator      import evaluator_node
-from backend.config.settings       import MAX_RETRIES
+from backend.config.settings       import DEFAULT_MAX_RETRIES
 
 
 # ---------------------------------------------------------------------------
@@ -27,6 +27,9 @@ class PipelineState(TypedDict, total=False):
     contract_code:       str
     user_story:          str
     source_filename:     str   # nom du fichier .sol original (ex: "SimpleSwap.sol")
+    max_retries:         int
+    statement_coverage_threshold: int
+    branch_coverage_threshold:    int
     erc_context:         str
     test_design:         dict
     test_code:           str
@@ -138,6 +141,7 @@ def _route_after_evaluation(state: PipelineState) -> str:
     """
     decision   = state.get("evaluation_decision", "stop")
     iterations = state.get("iterations", 0)
+    max_retries = int(state.get("max_retries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES)
 
     # Affichage du tableau de bord des résultats (Tests + Coverage)
     _print_execution_summary(state)
@@ -145,8 +149,8 @@ def _route_after_evaluation(state: PipelineState) -> str:
     # --- Logique de détermination de l'arrêt ---
     stop_reason = None
 
-    if iterations >= MAX_RETRIES:
-        stop_reason = f"⛔ Limite de {MAX_RETRIES} itérations atteinte."
+    if iterations >= max_retries:
+        stop_reason = f"⛔ Limite de {max_retries} itérations atteinte."
     
     elif decision == "regenerate" and iterations >= 2:
         curr_score = _compute_score(state)
@@ -175,8 +179,9 @@ def _increment_iterations(state: PipelineState) -> dict:
     """
     new_count  = state.get("iterations", 0) + 1
     curr_score = _compute_score(state)
+    max_retries = int(state.get("max_retries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES)
     print(
-        f"[Orchestrator] 🔁 Itération {new_count}/{MAX_RETRIES} "
+        f"[Orchestrator] 🔁 Itération {new_count}/{max_retries} "
         f"— score={curr_score:.1f} — lancement de la correction…"
     )
     return {"iterations": new_count, "prev_score": curr_score}

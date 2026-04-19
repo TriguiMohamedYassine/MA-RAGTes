@@ -1,6 +1,6 @@
-# SolidTest VS Code Extension
+# maragtes VS Code Extension
 
-Plugin VS Code pour générer automatiquement des tests pour smart contracts Solidity en intégration avec le pipeline SolidTest.
+Plugin VS Code pour générer automatiquement des tests pour smart contracts Solidity en intégration avec le pipeline maragtes.
 
 ## Fonctionnalités
 
@@ -19,7 +19,7 @@ Plugin VS Code pour générer automatiquement des tests pour smart contracts Sol
 - Rafraîchissement automatique
 
 ⚙️ **Configuration flexible**
-- URL de l'API SolidTest personnalisable
+- URL de l'API maragtes personnalisable
 - Paramètres de notification
 - Intervalle de rafraîchissement réglable
 
@@ -28,7 +28,7 @@ Plugin VS Code pour générer automatiquement des tests pour smart contracts Sol
 1. **Cloner le dépôt**
 ```bash
 git clone <repo-url>
-cd vscode-solidtest
+cd vscode-maragtes
 ```
 
 2. **Installer les dépendances**
@@ -58,10 +58,10 @@ Ouvrir les paramètres VS Code et configurer :
 
 ```json
 {
-  "solidtest.apiUrl": "http://localhost:8000",
-  "solidtest.autoRefresh": true,
-  "solidtest.refreshInterval": 5000,
-  "solidtest.showNotifications": true
+  "maragtes.apiUrl": "http://localhost:8000",
+  "maragtes.autoRefresh": true,
+  "maragtes.refreshInterval": 5000,
+  "maragtes.showNotifications": true
 }
 ```
 
@@ -69,19 +69,19 @@ Ouvrir les paramètres VS Code et configurer :
 
 | Commande | Raccourci | Description |
 |----------|-----------|-------------|
-| `solidtest.submitContract` | `Ctrl+Alt+T` | Soumettre un contrat pour test |
-| `solidtest.viewHistory` | `Ctrl+Alt+H` | Ouvrir l'historique |
-| `solidtest.openDashboard` | - | Ouvrir le tableau de bord |
-| `solidtest.settings` | - | Ouvrir les paramètres SolidTest |
-| `solidtest.refresh` | - | Rafraîchir l'historique |
+| `maragtes.submitContract` | `Ctrl+Alt+T` | Soumettre un contrat pour test |
+| `maragtes.viewHistory` | `Ctrl+Alt+H` | Ouvrir l'historique |
+| `maragtes.openDashboard` | - | Ouvrir le tableau de bord |
+| `maragtes.settings` | - | Ouvrir les paramètres maragtes |
+| `maragtes.refresh` | - | Rafraîchir l'historique |
 
 ## Architecture
 
 ```
-vscode-solidtest/
+vscode-maragtes/
 ├── src/
 │   ├── extension.ts        ← Point d'entrée
-│   ├── apiClient.ts        ← Client HTTP pour l'API SolidTest
+│   ├── apiClient.ts        ← Client HTTP pour l'API maragtes
 │   ├── historyProvider.ts  ← Explorateur d'arborescence
 │   ├── webviewPanel.ts     ← Panneaux des résultats
 │   └── statusBar.ts        ← Barre de statut
@@ -107,7 +107,7 @@ npm run compile && code --extensionDevelopmentPath=. ../..
 
 1. **Soumettre un contrat**
    - Clic droit sur un fichier `.sol`
-   - Sélectionner "SolidTest: Soumettre pour test"
+   - Sélectionner "maragtes: Soumettre pour test"
    - Choisir l'environnement (testnet, mainnet, simulation)
 
 2. **Suivre le statut**
@@ -115,11 +115,11 @@ npm run compile && code --extensionDevelopmentPath=. ../..
    - Rafraîchissement automatique
 
 3. **Consulter les résultats**
-   - Explorer → SolidTest Explorer
+   - Explorer → maragtes Explorer
    - Cliquer sur un run pour voir les résultats
 
 4. **Dashboard**
-   - Command palette → "SolidTest: Ouvrir le tableau de bord"
+   - Command palette → "maragtes: Ouvrir le tableau de bord"
    - Vue synthétique des performances
 
 ## Démarrage du projet complet
@@ -130,16 +130,16 @@ cd ..
 uvicorn api:app --reload --port 8000
 
 # Terminal 2 - Frontend React (optionnel)
-cd solidtest
+cd maragtes
 npm run dev
 
 # Terminal 3 - L'extension VS Code
-code --extensionDevelopmentPath=vscode-solidtest .
+code --extensionDevelopmentPath=vscode-maragtes .
 ```
 
 Puis:
 1. Ouvrir un fichier `.sol` dans VS Code
-2. Clic droit → "SolidTest: Soumettre pour test"
+2. Clic droit → "maragtes: Soumettre pour test"
 3. Voir le statut en temps réel dans l'extension
 
 ## Dépendances
@@ -155,3 +155,4 @@ MIT
 ## Support
 
 Pour les issues ou suggestions, ouvrir une issue sur GitHub.
+

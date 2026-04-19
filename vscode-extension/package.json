@@ -1,9 +1,9 @@
 {
-  "name": "vscode-solidtest",
-  "displayName": "SolidTest",
-  "description": "Plugin VS Code pour générer automatiquement des tests pour smart contracts Solidity",
-  "version": "1.0.3",
-  "publisher": "solidtest",
+  "name": "vscode-maragtes",
+  "displayName": "MA-RAGTes",
+  "description": "VS Code extension to automatically generate tests for Solidity smart contracts",
+  "version": "1.0.9",
+  "publisher": "maragtes",
   "license": "MIT",
   "engines": {
     "vscode": "^1.60.0"
@@ -30,166 +30,166 @@
   ],
   "activationEvents": [
   "workspaceContains:**/*.sol",
-  "onCommand:solidtest.submitContract",
-  "onCommand:solidtest.submitCurrentContract",
-  "onCommand:solidtest.viewHistory",
-  "onCommand:solidtest.openDashboard",
-  "onCommand:solidtest.openLatestResult",
-  "onCommand:solidtest.settings",
-  "onCommand:solidtest.viewResults",
-  "onCommand:solidtest.refresh",
-  "onView:solidtestExplorer"
+  "onCommand:maragtes.submitContract",
+  "onCommand:maragtes.submitCurrentContract",
+  "onCommand:maragtes.viewHistory",
+  "onCommand:maragtes.openDashboard",
+  "onCommand:maragtes.openLatestResult",
+  "onCommand:maragtes.settings",
+  "onCommand:maragtes.viewResults",
+  "onCommand:maragtes.refresh",
+  "onView:maragtesExplorer"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "solidtest.submitContract",
-        "title": "SolidTest: Soumettre pour test",
-        "category": "SolidTest",
+        "command": "maragtes.submitContract",
+        "title": "MA-RAGTes: Submit for testing",
+        "category": "MA-RAGTes",
         "when": "resourceLangId == solidity",
         "icon": "$(play)"
       },
       {
-        "command": "solidtest.submitCurrentContract",
-        "title": "SolidTest: Submit current contract",
-        "category": "SolidTest",
+        "command": "maragtes.submitCurrentContract",
+        "title": "MA-RAGTes: Submit current contract",
+        "category": "MA-RAGTes",
         "icon": "$(play)"
       },
       {
-        "command": "solidtest.viewHistory",
-        "title": "SolidTest: Voir l'historique",
-        "category": "SolidTest",
+        "command": "maragtes.viewHistory",
+        "title": "MA-RAGTes: View history",
+        "category": "MA-RAGTes",
         "icon": "$(history)"
       },
       {
-        "command": "solidtest.openDashboard",
-        "title": "SolidTest: Ouvrir le tableau de bord",
-        "category": "SolidTest",
+        "command": "maragtes.openDashboard",
+        "title": "MA-RAGTes: Open dashboard",
+        "category": "MA-RAGTes",
         "icon": "$(dashboard)"
       },
       {
-        "command": "solidtest.openLatestResult",
-        "title": "SolidTest: Open latest result",
-        "category": "SolidTest",
+        "command": "maragtes.openLatestResult",
+        "title": "MA-RAGTes: Open latest result",
+        "category": "MA-RAGTes",
         "icon": "$(file-text)"
       },
       {
-        "command": "solidtest.settings",
-        "title": "SolidTest: Paramètres",
-        "category": "SolidTest",
+        "command": "maragtes.settings",
+        "title": "MA-RAGTes: Settings",
+        "category": "MA-RAGTes",
         "icon": "$(settings)"
       },
       {
-        "command": "solidtest.runTestNow",
-        "title": "Exécuter le test maintenant",
+        "command": "maragtes.runTestNow",
+        "title": "Run test now",
         "icon": "$(play)"
       },
       {
-        "command": "solidtest.viewResults",
-        "title": "Voir les résultats",
+        "command": "maragtes.viewResults",
+        "title": "View results",
         "icon": "$(file-text)"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "solidtest.submitContract",
+          "command": "maragtes.submitContract",
           "group": "1_modification",
           "when": "resourceLangId == solidity"
         }
       ],
       "explorer/context": [
         {
-          "command": "solidtest.submitContract",
+          "command": "maragtes.submitContract",
           "group": "1_modification",
           "when": "resourceLangId == solidity"
         }
       ],
       "view/item/context": [
         {
-          "command": "solidtest.viewResults",
+          "command": "maragtes.viewResults",
           "group": "inline",
-          "when": "view == solidtestExplorer && viewItem == run"
+          "when": "view == maragtesExplorer && viewItem == run"
         },
         {
-          "command": "solidtest.runTestNow",
+          "command": "maragtes.runTestNow",
           "group": "inline",
-          "when": "view == solidtestExplorer && viewItem == pending"
+          "when": "view == maragtesExplorer && viewItem == pending"
         }
       ]
     },
     "views": {
-      "solidtestExplorer": [
+      "maragtesExplorer": [
         {
-          "id": "solidtestExplorer",
-          "name": "SolidTest Explorer",
-          "icon": "media/solidtest.svg",
-          "contextualTitle": "SolidTest"
+          "id": "maragtesExplorer",
+          "name": "MA-RAGTes Explorer",
+          "icon": "media/maragtes.svg",
+          "contextualTitle": "MA-RAGTes"
         }
       ]
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "solidtestExplorer",
-          "title": "SolidTest",
-          "icon": "media/solidtest.svg"
+          "id": "maragtesExplorer",
+          "title": "MA-RAGTes",
+          "icon": "media/maragtes.svg"
         }
       ]
     },
     "configuration": {
-      "title": "SolidTest",
+      "title": "MA-RAGTes",
       "properties": {
-        "solidtest.apiUrl": {
+        "maragtes.apiUrl": {
           "type": "string",
           "default": "http://localhost:8000",
-          "description": "URL de l'API SolidTest"
+          "description": "MA-RAGTes API URL"
         },
-        "solidtest.frontendUrl": {
+        "maragtes.frontendUrl": {
           "type": "string",
           "default": "http://localhost:3000",
-          "description": "URL du frontend SolidTest"
+          "description": "MA-RAGTes frontend URL"
         },
-        "solidtest.defaultEnvironment": {
+        "maragtes.defaultEnvironment": {
           "type": "string",
           "default": "simulation",
-          "description": "Environnement proposé par défaut lors de la soumission"
+          "description": "Default environment for submissions"
         },
-        "solidtest.autoRefresh": {
+        "maragtes.autoRefresh": {
           "type": "boolean",
           "default": true,
-          "description": "Rafraîchir automatiquement l'historique"
+          "description": "Auto-refresh history"
         },
-        "solidtest.refreshInterval": {
+        "maragtes.refreshInterval": {
           "type": "number",
           "default": 5000,
-          "description": "Intervalle de rafraîchissement en millisecondes"
+          "description": "Refresh interval in milliseconds"
         },
-        "solidtest.showNotifications": {
+        "maragtes.showNotifications": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les notifications"
+          "description": "Show notifications"
         }
       }
     },
     "keybindings": [
       {
-        "command": "solidtest.submitContract",
+        "command": "maragtes.submitContract",
         "key": "ctrl+alt+t",
         "when": "resourceLangId == solidity"
       },
       {
-        "command": "solidtest.submitCurrentContract",
+        "command": "maragtes.submitCurrentContract",
         "key": "ctrl+alt+shift+t",
         "when": "resourceLangId == solidity"
       },
       {
-        "command": "solidtest.viewHistory",
+        "command": "maragtes.viewHistory",
         "key": "ctrl+alt+h"
       },
       {
-        "command": "solidtest.openLatestResult",
+        "command": "maragtes.openLatestResult",
         "key": "ctrl+alt+l"
       }
     ]
@@ -216,3 +216,6 @@
     "dotenv": "^16.0.0"
   }
 }
+
+
+

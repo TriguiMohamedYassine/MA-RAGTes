@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 
-export type SolidTestStatusState = 'idle' | 'submitting' | 'running' | 'done' | 'error';
+export type maragtesStatusState = 'idle' | 'submitting' | 'running' | 'done' | 'error';
 
 export class StatusBar {
     private statusBar: vscode.StatusBarItem;
 
     constructor() {
         this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        this.showState('idle', 'SolidTest prêt');
+        this.showState('idle', 'MA-RAGTes ready');
     }
 
     show(message: string, color?: string): void {
@@ -32,7 +32,7 @@ export class StatusBar {
         this.statusBar.show();
     }
 
-    showState(state: SolidTestStatusState, message?: string): void {
+    showState(state: maragtesStatusState, message?: string): void {
         const label = message || this.getDefaultMessage(state);
         const icon = this.getIcon(state);
 
@@ -51,19 +51,19 @@ export class StatusBar {
         this.statusBar.dispose();
     }
 
-    private getDefaultMessage(state: SolidTestStatusState): string {
+    private getDefaultMessage(state: maragtesStatusState): string {
         switch (state) {
-            case 'submitting': return 'Soumission du contrat';
-            case 'running': return 'Pipeline en cours';
-            case 'done': return 'Dernier run terminé';
-            case 'error': return 'Erreur SolidTest';
+            case 'submitting': return 'Submitting contract';
+            case 'running': return 'Pipeline running';
+            case 'done': return 'Last run completed';
+            case 'error': return 'MA-RAGTes error';
             case 'idle':
             default:
-                return 'SolidTest prêt';
+                return 'MA-RAGTes ready';
         }
     }
 
-    private getIcon(state: SolidTestStatusState): string {
+    private getIcon(state: maragtesStatusState): string {
         switch (state) {
             case 'submitting': return '$(cloud-upload)';
             case 'running': return '$(sync~spin)';
@@ -75,11 +75,11 @@ export class StatusBar {
         }
     }
 
-    private getTooltip(state: SolidTestStatusState, message: string): string {
-        return `SolidTest - ${state}\n${message}`;
+    private getTooltip(state: maragtesStatusState, message: string): string {
+        return `MA-RAGTes - ${state}\n${message}`;
     }
 
-    private getForegroundColor(state: SolidTestStatusState): vscode.ThemeColor | undefined {
+    private getForegroundColor(state: maragtesStatusState): vscode.ThemeColor | undefined {
         if (state === 'error') {
             return new vscode.ThemeColor('statusBarItem.errorForeground');
         }
@@ -91,7 +91,7 @@ export class StatusBar {
         return undefined;
     }
 
-    private getBackgroundColor(state: SolidTestStatusState): vscode.ThemeColor | undefined {
+    private getBackgroundColor(state: maragtesStatusState): vscode.ThemeColor | undefined {
         if (state === 'error') {
             return new vscode.ThemeColor('statusBarItem.errorBackground');
         }
@@ -103,3 +103,5 @@ export class StatusBar {
         return undefined;
     }
 }
+
+

@@ -261,13 +261,30 @@ select {
 .history-controls input,
 .history-controls select,
 .form-row input,
-.form-row select {
+.form-row select,
+.form-row textarea {
   min-width: 180px;
   padding: 10px 12px;
   color: var(--text);
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(8, 15, 28, 0.72);
+}
+
+.form-row textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: inherit;
+}
+
+.user-story-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.user-story-actions .btn {
+  width: 100%;
 }
 
 .history-list {
@@ -471,7 +488,8 @@ select {
   .history-controls input,
   .history-controls select,
   .form-row input,
-  .form-row select {
+  .form-row select,
+  .form-row textarea {
     width: 100%;
     min-width: 0;
   }

@@ -62,7 +62,7 @@ export default function Navbar({ current, onChange }) {
           </svg>
         </div>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, color: "#7c3aed", lineHeight: 1.2 }}>SolidTest</div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: "#7c3aed", lineHeight: 1.2 }}>MA-RAGTes</div>
           <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.2 }}>Multi-Agent Testing System</div>
         </div>
       </div>

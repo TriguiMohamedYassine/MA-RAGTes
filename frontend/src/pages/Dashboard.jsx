@@ -123,7 +123,7 @@ export default function Dashboard({ onNewTest, onOpenHistory }) {
       setRuns(Array.isArray(data) ? data : []);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors du chargement.");
+      setError(err instanceof Error ? err.message : "Error while loading dashboard data.");
     } finally {
       setIsLoading(false);
     }
@@ -270,7 +270,7 @@ export default function Dashboard({ onNewTest, onOpenHistory }) {
   return (
     <div className="fade-in">
       <div className="page-title">Dashboard</div>
-      <div className="page-sub">Données en temps réel depuis l'API backend.</div>
+      <div className="page-sub">Real-time data from the backend API.</div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: "1rem" }}>
         <button className="btn-primary" onClick={onNewTest}>Create New Test</button>
@@ -476,7 +476,7 @@ export default function Dashboard({ onNewTest, onOpenHistory }) {
         {isLoading ? (
           <div style={{ color: "#64748b" }}>Loading runs...</div>
         ) : recent.length === 0 ? (
-          <div style={{ color: "#64748b" }}>Aucun run pour le moment.</div>
+          <div style={{ color: "#64748b" }}>No runs yet.</div>
         ) : (
           <div style={{ display: "grid", gap: "0.6rem" }}>
             {recent.map((run) => (

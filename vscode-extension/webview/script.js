@@ -3,6 +3,7 @@ const vscode = acquireVsCodeApi();
 const state = {
   snapshot: null,
   selectedContract: null,
+  selectedUserStoryPath: "",
   selectedEnvironment: "simulation",
   selectedRunId: "",
   selectedRunDetails: null,
@@ -22,20 +23,14 @@ const state = {
 
 const dom = {
   selectContractBtn: document.getElementById('selectContractBtn'),
+  selectUserStoryBtn: document.getElementById('selectUserStoryBtn'),
   submitBtn: document.getElementById('submitBtn'),
   openContractBtn: document.getElementById('openContractBtn'),
   latestResultBtn: document.getElementById('latestResultBtn'),
   openDashboardBtn: document.getElementById('openDashboardBtn'),
   refreshHistoryBtn: document.getElementById('refreshHistoryBtn'),
-  historyRefreshBtn: document.getElementById('historyRefreshBtn'),
-  saveSettingsBtn: document.getElementById('saveSettingsBtn'),
-  rerunBtn: document.getElementById('rerunBtn'),
-  copyCodeBtn: document.getElementById('copyCodeBtn'),
-  copyCodeInlineBtn: document.getElementById('copyCodeInlineBtn'),
-  downloadReportBtn: document.getElementById('downloadReportBtn'),
-  apiUrl: document.getElementById('apiUrl'),
-  frontendUrl: document.getElementById('frontendUrl'),
   environmentSelect: document.getElementById('environmentSelect'),
+  userStoryInput: document.getElementById('userStoryInput'),
   contractInfo: document.getElementById('contractInfo'),
   statusBadge: document.getElementById('statusBadge'),
   statusMessage: document.getElementById('statusMessage'),
@@ -52,7 +47,6 @@ const dom = {
   runDetailsError: document.getElementById('runDetailsError'),
   runDetailsCode: document.getElementById('runDetailsCode'),
   runDetailsLogs: document.getElementById('runDetailsLogs'),
-  dashboardNotice: document.getElementById('dashboardNotice'),
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -62,13 +56,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function wireEvents() {
   dom.selectContractBtn?.addEventListener('click', () => vscode.postMessage({ type: 'select-contract' }));
+  dom.selectUserStoryBtn?.addEventListener('click', () => vscode.postMessage({ type: 'select-user-story' }));
   dom.submitBtn?.addEventListener('click', handleSubmit);
   dom.openContractBtn?.addEventListener('click', handleOpenContractFile);
   dom.latestResultBtn?.addEventListener('click', () => vscode.postMessage({ type: 'open-latest-result' }));
   dom.openDashboardBtn?.addEventListener('click', () => vscode.postMessage({ type: 'open-dashboard' }));
   dom.refreshHistoryBtn?.addEventListener('click', refreshHistory);
   dom.historyRefreshBtn?.addEventListener('click', refreshHistory);
-  dom.saveSettingsBtn?.addEventListener('click', saveSettings);
   dom.rerunBtn?.addEventListener('click', handleRerun);
   dom.copyCodeBtn?.addEventListener('click', handleCopyTestCode);
   dom.copyCodeInlineBtn?.addEventListener('click', handleCopyTestCode);
@@ -117,6 +111,12 @@ function handleMessage(event) {
       renderContract();
       renderRunMeta();
       break;
+    case 'user-story-selected':
+      state.selectedUserStoryPath = message.filePath || "";
+      if (dom.userStoryInput) {
+        dom.userStoryInput.value = message.text || '';
+      }
+      break;
     case 'environment-selected':
       state.selectedEnvironment = message.environment || state.selectedEnvironment;
       if (dom.environmentSelect) {
@@ -151,44 +151,31 @@ function handleMessage(event) {
 function applySnapshot(snapshot) {
   state.snapshot = snapshot || null;
   state.selectedContract = snapshot?.contract || state.selectedContract;
-  state.selectedRunId = snapshot?.selectedRunId || snapshot?.latestRun?.run_id || state.selectedRunId;
+  state.selectedRunId = snapshot?.selectedRunId || '';
+  if (!state.selectedRunId || state.selectedRunDetails?.run_id !== state.selectedRunId) {
+    state.selectedRunDetails = null;
+  }
   state.selectedEnvironment = snapshot?.lastEnvironment || state.selectedEnvironment || 'simulation';
 
   if (dom.environmentSelect) {
     dom.environmentSelect.value = state.selectedEnvironment;
   }
 
-  if (snapshot?.apiUrl && dom.apiUrl) {
-    dom.apiUrl.value = snapshot.apiUrl;
-  }
 
-  if (snapshot?.frontendUrl && dom.frontendUrl) {
-    dom.frontendUrl.value = snapshot.frontendUrl;
-  }
 
   renderContract();
-  const normalizedLatestStatus = normalizeStatus(snapshot?.latestRun?.status);
-  const initialStatus = snapshot?.apiHealthy === false ? 'error' : (snapshot?.latestRun ? normalizedLatestStatus : 'idle');
+  const initialStatus = snapshot?.apiHealthy === false ? 'error' : 'idle';
   const initialMessage = snapshot?.apiHealthy === false
-    ? 'API inaccessible sur http://localhost:8000.'
-    : snapshot?.latestRun
-      ? buildStatusMessage(snapshot.latestRun)
-      : 'Prêt à soumettre un contrat.';
+    ? 'API is unreachable on http://localhost:8000.'
+    : 'Ready to submit a contract.';
   renderStatus(initialStatus, initialMessage);
-  renderTimeline(snapshot?.latestRun || null);
+  renderTimeline(null);
   renderHistory();
   renderQuickSummary();
   renderSelectedRunDetails();
-  renderDashboardNotice();
 }
 
 function applySettings(settings) {
-  if (settings?.apiUrl && dom.apiUrl) {
-    dom.apiUrl.value = settings.apiUrl;
-  }
-  if (settings?.frontendUrl && dom.frontendUrl) {
-    dom.frontendUrl.value = settings.frontendUrl;
-  }
   if (settings?.defaultEnvironment) {
     state.selectedEnvironment = settings.defaultEnvironment;
     if (dom.environmentSelect) {
@@ -228,11 +215,13 @@ function handleSubmit() {
   }
 
   const environment = dom.environmentSelect?.value || state.selectedEnvironment || 'simulation';
+  const userStory = dom.userStoryInput?.value?.trim() || '';
   state.selectedEnvironment = environment;
 
   vscode.postMessage({
     type: 'submit-contract',
     environment,
+    userStory,
     contractName: contract.name || 'UnknownContract',
     contractPath: contract.path || '',
   });
@@ -299,14 +288,6 @@ function handleOpenContractFile() {
 
 function refreshHistory() {
   vscode.postMessage({ type: 'refresh-history' });
-}
-
-function saveSettings() {
-  vscode.postMessage({
-    type: 'save-settings',
-    apiUrl: dom.apiUrl?.value?.trim() || '',
-    frontendUrl: dom.frontendUrl?.value?.trim() || '',
-  });
 }
 
 function renderContract() {
@@ -396,12 +377,12 @@ function getTimelineSteps(steps, currentNode, status) {
   return timeline;
 }
 
-function renderRunMeta(run = state.selectedRunDetails || state.snapshot?.latestRun) {
+function renderRunMeta(run = state.selectedRunDetails) {
   const selectedEnvironment = state.selectedEnvironment || 'simulation';
-  const runId = run?.run_id || state.selectedRunId || '-';
-  const contractName = run?.contract_name || state.selectedContract?.name || state.snapshot?.latestRun?.contract_name || '-';
+  const runId = run?.run_id || '-';
+  const contractName = run?.contract_name || state.selectedContract?.name || '-';
   const status = displayStatusLabel(normalizeStatus(run?.status));
-  const duration = formatDuration(run);
+  const duration = formatDuration(run, { allowLatestFallback: false });
 
   dom.runMeta.innerHTML = `
     <div class="mini-chip">Run ID: <strong>${escapeHtml(runId)}</strong></div>
@@ -413,9 +394,9 @@ function renderRunMeta(run = state.selectedRunDetails || state.snapshot?.latestR
 }
 
 function renderQuickSummary() {
-  const run = state.selectedRunDetails || state.snapshot?.latestRun;
+  const run = state.selectedRunDetails;
   if (!run) {
-    dom.quickSummary.innerHTML = '<p class="placeholder">No run yet.</p>';
+    dom.quickSummary.innerHTML = '<p class="placeholder">Select a run to see details.</p>';
     dom.resultError.classList.add('hidden');
     return;
   }
@@ -497,7 +478,7 @@ function renderHistory() {
 }
 
 function renderSelectedRunDetails() {
-  const run = state.selectedRunDetails || state.snapshot?.latestRun;
+  const run = state.selectedRunDetails;
   if (!run) {
     dom.runDetailsMeta.innerHTML = '<p class="placeholder">Select a run to inspect details.</p>';
     dom.runDetailsCode.textContent = '';
@@ -541,27 +522,6 @@ function renderSelectedRunDetails() {
   } else {
     dom.runDetailsError.classList.add('hidden');
   }
-}
-
-function renderDashboardNotice() {
-  const apiOk = state.snapshot?.apiHealthy;
-  const frontendOk = state.snapshot?.frontendHealthy;
-  const frontendUrl = dom.frontendUrl?.value || state.snapshot?.frontendUrl || 'http://localhost:5173';
-
-  if (apiOk === false) {
-    dom.dashboardNotice.textContent = 'API inaccessible sur http://localhost:8000.';
-    dom.dashboardNotice.className = 'notice notice-error';
-    return;
-  }
-
-  if (frontendOk === false) {
-    dom.dashboardNotice.textContent = `Dashboard indisponible, lance frontend/ sur ${frontendUrl}.`;
-    dom.dashboardNotice.className = 'notice notice-error';
-    return;
-  }
-
-  dom.dashboardNotice.textContent = `Frontend dashboard: ${frontendUrl}`;
-  dom.dashboardNotice.className = 'notice';
 }
 
 function showError(message) {
@@ -629,8 +589,9 @@ function normalizeNode(node) {
   return String(node).toLowerCase();
 }
 
-function formatDuration(run) {
-  const resolvedRun = resolveRunForTiming(run);
+function formatDuration(run, options = {}) {
+  const allowLatestFallback = options.allowLatestFallback !== false;
+  const resolvedRun = resolveRunForTiming(run, allowLatestFallback);
   if (!resolvedRun) return '-';
 
   const start = toTimestamp(resolvedRun.started_at);
@@ -646,9 +607,9 @@ function formatDuration(run) {
   return `${remaining}s`;
 }
 
-function resolveRunForTiming(run) {
+function resolveRunForTiming(run, allowLatestFallback = true) {
   if (!run) {
-    return state.snapshot?.latestRun || null;
+    return allowLatestFallback ? (state.snapshot?.latestRun || null) : null;
   }
 
   const hasTiming = Boolean(run.started_at);
@@ -678,7 +639,7 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
-  return date.toLocaleString('fr-FR');
+  return date.toLocaleString('en-US');
 }
 
 function escapeHtml(value) {
@@ -693,3 +654,4 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+

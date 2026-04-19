@@ -26,20 +26,41 @@ VECTOR_DB_DIR: Path = DATA_DIR / "vector_db"
 # ---------------------------------------------------------------------------
 
 DEFAULT_CONTRACT_NAME: str = "Adoption"
-MAX_RETRIES: int = 7
+DEFAULT_MAX_RETRIES: int = 7
+DEFAULT_STATEMENT_COVERAGE_THRESHOLD: int = 85
+DEFAULT_BRANCH_COVERAGE_THRESHOLD: int = 80
 
 # ---------------------------------------------------------------------------
 # Clés API
 # ---------------------------------------------------------------------------
 
-MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "")
+_MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "")
+
+
+def get_mistral_api_key() -> str:
+    """Retourne la clé Mistral en mémoire ou depuis l'environnement."""
+    return _MISTRAL_API_KEY or os.getenv("MISTRAL_API_KEY", "")
+
+
+def has_mistral_api_key() -> bool:
+    """Indique si une clé API Mistral est configurée."""
+    return bool(get_mistral_api_key().strip())
+
+
+def set_mistral_api_key(value: str) -> None:
+    """Met à jour la clé Mistral en mémoire et dans l'environnement du process."""
+    global _MISTRAL_API_KEY
+    clean = (value or "").strip()
+    _MISTRAL_API_KEY = clean
+    os.environ["MISTRAL_API_KEY"] = clean
 
 
 def require_mistral_api_key() -> str:
     """Retourne la clé Mistral ou lève une erreur explicite si absente."""
-    if not MISTRAL_API_KEY:
+    api_key = get_mistral_api_key()
+    if not api_key:
         raise EnvironmentError(
             "La variable d'environnement MISTRAL_API_KEY est manquante. "
             "Ajoutez-la dans votre fichier .env ou dans l'environnement système."
         )
-    return MISTRAL_API_KEY
+    return api_key

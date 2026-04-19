@@ -61,7 +61,7 @@ const GRAPH_STEPS = [
   { key: "evaluator", label: "Evaluator" },
 ];
 
-const ACTIVE_RUN_STORAGE_KEY = "solidtest_active_run_id";
+const ACTIVE_RUN_STORAGE_KEY = "maragtes_active_run_id";
 
 const STEP_INDEX = Object.fromEntries(PIPELINE_STEPS.map((step, index) => [step.key, index]));
 const LOOP_KEYS = ["executor", "analyzer", "evaluator", "corrector"];
@@ -117,7 +117,7 @@ function getLinearState(index, currentIndex, pipelineStatus) {
   return "pending";
 }
 
-function getLoopAwareStepStates(currentNode, pipelineStatus) {
+function getLoopAwareStepStates(currentNode, pipelineStatus, runIterations) {
   const normalized = normalizeNode(currentNode);
   const currentIndex = STEP_INDEX[normalized] ?? -1;
 
@@ -141,13 +141,21 @@ function getLoopAwareStepStates(currentNode, pipelineStatus) {
     corrector: ["done", "done", "done", "active"],
   };
 
+  const retryCompletedStates = {
+    executor: ["active", "pending", "pending", "done"],
+    analyzer: ["done", "active", "pending", "done"],
+    evaluator: ["done", "done", "active", "done"],
+  };
+
   const states = PIPELINE_STEPS.map(() => "pending");
 
   // Steps before executor are global setup steps and stay done once loop is running.
   states[STEP_INDEX.test_designer] = "done";
   states[STEP_INDEX.generator_normal] = "done";
 
-  const segment = loopStates[normalized] || ["pending", "pending", "pending", "pending"];
+  const segment = runIterations > 0 && normalized !== "corrector"
+    ? (retryCompletedStates[normalized] || ["pending", "pending", "pending", "pending"])
+    : (loopStates[normalized] || ["pending", "pending", "pending", "pending"]);
   LOOP_KEYS.forEach((key, i) => {
     states[STEP_INDEX[key]] = segment[i];
   });
@@ -158,6 +166,7 @@ function getLoopAwareStepStates(currentNode, pipelineStatus) {
 export default function NewTest({ onRunStarted }) {
   const [contractName, setContractName] = useState("");
   const [userStory, setUserStory] = useState("");
+  const [userStoryFileName, setUserStoryFileName] = useState("");
   const [code, setCode] = useState("");
   const [fileName, setFileName] = useState("");
   const [uploadMode, setUploadMode] = useState("paste");
@@ -165,7 +174,6 @@ export default function NewTest({ onRunStarted }) {
   const [maxRetries, setMaxRetries] = useState(7);
   const [statementCoverage, setStatementCoverage] = useState(85);
   const [branchCoverage, setBranchCoverage] = useState(80);
-  const [ragEnabled, setRagEnabled] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -175,6 +183,7 @@ export default function NewTest({ onRunStarted }) {
   const [runIterations, setRunIterations] = useState(0);
 
   const fileInputRef = useRef(null);
+  const userStoryInputRef = useRef(null);
 
   const canSubmit = useMemo(() => !isSubmitting && code.trim().length > 0, [isSubmitting, code]);
 
@@ -190,8 +199,8 @@ export default function NewTest({ onRunStarted }) {
   };
 
   const stepStates = useMemo(
-    () => getLoopAwareStepStates(currentNode, pipelineStatus),
-    [currentNode, pipelineStatus],
+    () => getLoopAwareStepStates(currentNode, pipelineStatus, runIterations),
+    [currentNode, pipelineStatus, runIterations],
   );
 
   const normalizedCurrentNode = normalizeNode(currentNode);
@@ -242,7 +251,7 @@ export default function NewTest({ onRunStarted }) {
       } catch (err) {
         if (cancelled) return;
         setPipelineStatus("error");
-        setError(err instanceof Error ? err.message : "Erreur lors du suivi du pipeline.");
+        setError(err instanceof Error ? err.message : "Error while tracking pipeline status.");
       }
     };
 
@@ -300,7 +309,7 @@ export default function NewTest({ onRunStarted }) {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".sol")) {
-      setError("Le fichier doit avoir l'extension .sol");
+      setError("The file must use the .sol extension.");
       return;
     }
 
@@ -317,18 +326,53 @@ export default function NewTest({ onRunStarted }) {
           }
         }
       } catch {
-        setError("Erreur lors de la lecture du fichier.");
+        setError("Error while reading file.");
       }
     };
     reader.onerror = () => {
-      setError("Impossible de lire le fichier.");
+      setError("Unable to read file.");
     };
     reader.readAsText(file);
   };
 
+  const onUserStoryPicked = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".md") && !lowerName.endsWith(".specs.md")) {
+      setError("User story file must be .txt or .md.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result;
+        if (typeof text === "string") {
+          setUserStory(text);
+          setUserStoryFileName(file.name);
+          setError("");
+        }
+      } catch {
+        setError("Error while reading user story file.");
+      }
+    };
+    reader.onerror = () => {
+      setError("Unable to read user story file.");
+    };
+    reader.readAsText(file);
+  };
+
+  const handleOpenRunDetails = () => {
+    if (activeRunId && onRunStarted) {
+      onRunStarted(activeRunId);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!code.trim()) {
-      setError("Le code du contrat est obligatoire.");
+      setError("Contract code is required.");
       return;
     }
     setIsSubmitting(true);
@@ -338,6 +382,9 @@ export default function NewTest({ onRunStarted }) {
         contract_code: code,
         contract_name: contractName.trim(),
         user_story: userStory,
+        max_retries: maxRetries,
+        statement_coverage_threshold: statementCoverage,
+        branch_coverage_threshold: branchCoverage,
       };
       const run = await startRun(payload);
       setActiveRunId(run.run_id);
@@ -346,7 +393,7 @@ export default function NewTest({ onRunStarted }) {
       setRunIterations(0);
       localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, run.run_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue lors du lancement.");
+      setError(err instanceof Error ? err.message : "Unknown error while starting run.");
     } finally {
       setIsSubmitting(false);
     }
@@ -446,6 +493,27 @@ export default function NewTest({ onRunStarted }) {
           />
 
           <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>User Story / Specs</label>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => userStoryInputRef.current?.click()}
+            >
+              Upload User Story
+            </button>
+            <input
+              ref={userStoryInputRef}
+              type="file"
+              accept=".txt,.md,.specs.md"
+              onChange={onUserStoryPicked}
+              style={{ display: "none" }}
+            />
+            {userStoryFileName && (
+              <span style={{ alignSelf: "center", fontSize: 12, color: "#475569" }}>
+                {userStoryFileName}
+              </span>
+            )}
+          </div>
           <textarea
             value={userStory}
             onChange={(event) => setUserStory(event.target.value)}
@@ -500,19 +568,6 @@ export default function NewTest({ onRunStarted }) {
               </div>
               <input type="range" min={40} max={100} value={branchCoverage} onChange={(event) => setBranchCoverage(Number(event.target.value))} />
             </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>Enable RAG System</div>
-                <div style={{ color: "#64748b", fontSize: 13 }}>Use ChromaDB for standard detection</div>
-              </div>
-              <button
-                type="button"
-                className={`toggle-switch ${ragEnabled ? "on" : ""}`}
-                onClick={() => setRagEnabled((previous) => !previous)}
-                aria-label="Toggle RAG"
-              />
-            </div>
           </div>
         )}
       </div>
@@ -529,7 +584,12 @@ export default function NewTest({ onRunStarted }) {
           >
             {isSubmitting ? "Starting..." : "Generate Tests"}
           </button>
-          {activeRunId && (
+          {activeRunId && pipelineStatus === "done" && (
+            <button className="btn" onClick={handleOpenRunDetails}>
+              Open Run Details
+            </button>
+          )}
+          {activeRunId && pipelineStatus !== "done" && (
             <button className="btn" onClick={() => onRunStarted && onRunStarted(activeRunId)}>
               Open in History
             </button>
@@ -638,6 +698,13 @@ export default function NewTest({ onRunStarted }) {
               Status: {pipelineStatus} {currentNode ? `- ${currentNode}` : ""}
             </div>
             <div style={{ fontSize: 12, color: "#64748b" }}>Iterations: {runIterations}</div>
+            {pipelineStatus === "done" && (
+              <div style={{ marginTop: 10 }}>
+                <button className="btn-primary" onClick={handleOpenRunDetails}>
+                  Go to Run Details
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -650,7 +717,7 @@ export default function NewTest({ onRunStarted }) {
 
       {activeRunId && (
         <div className="card" style={{ padding: "0.9rem 1rem", marginBottom: "1rem", borderColor: "#bbf7d0", color: "#166534" }}>
-          Run lancé avec succès: <strong>{activeRunId}</strong>
+          Run started successfully: <strong>{activeRunId}</strong>
         </div>
       )}
     </div>

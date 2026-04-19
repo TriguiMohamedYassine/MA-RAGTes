@@ -6,6 +6,10 @@ Agent LangGraph responsable de la décision stop / regenerate.
 
 from __future__ import annotations
 
+from backend.config.settings import (
+    DEFAULT_BRANCH_COVERAGE_THRESHOLD,
+    DEFAULT_STATEMENT_COVERAGE_THRESHOLD,
+)
 from backend.utils.evaluator_utils import _coverage_totals_from_report, _has_rate_limit_signal
 
 
@@ -26,6 +30,8 @@ def evaluator_node(state: dict) -> dict:
     failed = int(summary.get("failed", 0) or 0)
     stmts_pct = float(coverage.get("statements", 0) or 0)
     branches_pct = float(coverage.get("branches", 0) or 0)
+    statement_threshold = int(state.get("statement_coverage_threshold", DEFAULT_STATEMENT_COVERAGE_THRESHOLD) or DEFAULT_STATEMENT_COVERAGE_THRESHOLD)
+    branch_threshold = int(state.get("branch_coverage_threshold", DEFAULT_BRANCH_COVERAGE_THRESHOLD) or DEFAULT_BRANCH_COVERAGE_THRESHOLD)
     rate_limited = _has_rate_limit_signal(state)
 
     coverage_report = state.get("coverage_report", {}) or {}
@@ -45,22 +51,9 @@ def evaluator_node(state: dict) -> dict:
         decision = "regenerate"
         reason = f"{failed} test(s) en échec — correction des tests nécessaire."
     else:
-        # Arrêt générique robuste : si tous les tests passent et la couverture
-        # des instructions est déjà élevée, éviter des itérations coûteuses.
-        if stmts_pct >= 90:
-            decision = "stop"
-            reason = (
-                "Tous les tests passent et la couverture statements est élevée "
-                f"({stmts_pct:.1f}%). Arrêt pour éviter une régénération inutile."
-            )
-            return {
-                "evaluation_decision": decision,
-                "evaluation_reason": reason,
-            }
-
-        statements_ok = stmts_pct >= 85
+        statements_ok = stmts_pct >= statement_threshold
         branches_required = branches_total > 0
-        branches_ok = (branches_pct >= 80) if branches_required else True
+        branches_ok = (branches_pct >= branch_threshold) if branches_required else True
 
         if statements_ok and branches_ok:
             decision = "stop"
@@ -71,9 +64,9 @@ def evaluator_node(state: dict) -> dict:
         else:
             decision = "regenerate"
             if not statements_ok:
-                reason = f"Couverture statements insuffisante ({stmts_pct:.1f}% < 85%)."
+                reason = f"Couverture statements insuffisante ({stmts_pct:.1f}% < {statement_threshold}%)."
             else:
-                reason = f"Couverture branches insuffisante ({branches_pct:.1f}% < 80%)."
+                reason = f"Couverture branches insuffisante ({branches_pct:.1f}% < {branch_threshold}%)."
 
     return {
         "evaluation_decision": decision,

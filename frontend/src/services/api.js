@@ -50,3 +50,10 @@ export function clearHistory() {
 export function getHealth() {
   return request("/api/health");
 }
+
+export function saveLlmApiKey(apiKey) {
+  return request("/api/settings/llm-key", {
+    method: "POST",
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}

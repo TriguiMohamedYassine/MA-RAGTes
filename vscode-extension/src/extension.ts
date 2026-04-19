@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { SolidTestPanel } from './webviewPanel';
+import { maragtesPanel } from './webviewPanel';
 import { HistoryProvider, RunItem } from './historyProvider';
 import { ApiClient, ContractSubmission, RunRecord } from './apiClient';
 import { StatusBar } from './statusBar';
 
 const DEFAULT_API_URL = 'http://localhost:8000';
 const DEFAULT_FRONTEND_URL = 'http://localhost:3000';
-const LAST_ENVIRONMENT_KEY = 'solidtest.lastEnvironment';
+const LAST_ENVIRONMENT_KEY = 'maragtes.lastEnvironment';
 const HISTORY_REFRESH_DELAY_MS = 1000;
 
 let apiClient: ApiClient;
@@ -39,58 +39,70 @@ interface DashboardSnapshot {
     selectedRunId?: string;
 }
 
-export async function activate(context: vscode.ExtensionContext) {
-    console.log('SolidTest extension is now active!');
+interface SubmissionPayload {
+    uri?: string;
+    contractPath?: string;
+    environment?: string;
+    userStory?: string;
+}
 
-    const config = vscode.workspace.getConfiguration('solidtest');
+export async function activate(context: vscode.ExtensionContext) {
+    console.log('maragtes extension is now active!');
+
+    const config = vscode.workspace.getConfiguration('maragtes');
     apiClient = new ApiClient(config.get('apiUrl', DEFAULT_API_URL));
     statusBar = new StatusBar();
     historyProvider = new HistoryProvider(apiClient);
 
     context.subscriptions.push(historyProvider);
-    vscode.window.registerTreeDataProvider('solidtestExplorer', historyProvider);
+    vscode.window.registerTreeDataProvider('maragtesExplorer', historyProvider);
 
-    const submitCommand = vscode.commands.registerCommand('solidtest.submitContract', async (payload?: vscode.Uri | { uri?: string; contractPath?: string; environment?: string }) => {
+    const submitCommand = vscode.commands.registerCommand('maragtes.submitContract', async (payload?: vscode.Uri | SubmissionPayload) => {
+        await handleOpenSubmitPanel(context, payload);
+    });
+
+    const submitCurrentContractCommand = vscode.commands.registerCommand('maragtes.submitCurrentContract', async () => {
+        await handleOpenSubmitPanel(context);
+    });
+
+    const submitFromPanelCommand = vscode.commands.registerCommand('maragtes.submitFromPanel', async (payload?: vscode.Uri | SubmissionPayload) => {
         await handleSubmitContract(context, payload);
     });
 
-    const submitCurrentContractCommand = vscode.commands.registerCommand('solidtest.submitCurrentContract', async () => {
-        await handleSubmitContract(context);
-    });
-
-    const viewHistoryCommand = vscode.commands.registerCommand('solidtest.viewHistory', async () => {
+    const viewHistoryCommand = vscode.commands.registerCommand('maragtes.viewHistory', async () => {
         await handleViewHistory(context);
     });
 
-    const openDashboardCommand = vscode.commands.registerCommand('solidtest.openDashboard', async () => {
+    const openDashboardCommand = vscode.commands.registerCommand('maragtes.openDashboard', async () => {
         await handleOpenDashboard();
     });
 
-    const openLatestResultCommand = vscode.commands.registerCommand('solidtest.openLatestResult', async () => {
+    const openLatestResultCommand = vscode.commands.registerCommand('maragtes.openLatestResult', async () => {
         await handleOpenLatestResult(context);
     });
 
-    const settingsCommand = vscode.commands.registerCommand('solidtest.settings', async () => {
-        await vscode.commands.executeCommand('workbench.action.openSettings', 'solidtest');
+    const settingsCommand = vscode.commands.registerCommand('maragtes.settings', async () => {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'maragtes');
     });
 
-    const viewResultsCommand = vscode.commands.registerCommand('solidtest.viewResults', async (item: RunItem) => {
+    const viewResultsCommand = vscode.commands.registerCommand('maragtes.viewResults', async (item: RunItem) => {
         if (item?.runId) {
             await handleViewResults(context, item.runId);
         }
     });
 
-    const refreshCommand = vscode.commands.registerCommand('solidtest.refresh', async () => {
+    const refreshCommand = vscode.commands.registerCommand('maragtes.refresh', async () => {
         await historyProvider.refresh();
     });
 
-    const runNowCommand = vscode.commands.registerCommand('solidtest.runTestNow', async (item?: RunItem) => {
+    const runNowCommand = vscode.commands.registerCommand('maragtes.runTestNow', async (item?: RunItem) => {
         await handleRunNow(context, item);
     });
 
     context.subscriptions.push(
         submitCommand,
         submitCurrentContractCommand,
+        submitFromPanelCommand,
         viewHistoryCommand,
         openDashboardCommand,
         openLatestResultCommand,
@@ -101,31 +113,66 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async event => {
-        if (!event.affectsConfiguration('solidtest.apiUrl')) {
+        if (!event.affectsConfiguration('maragtes.apiUrl')) {
             return;
         }
 
-        const updatedConfig = vscode.workspace.getConfiguration('solidtest');
+        const updatedConfig = vscode.workspace.getConfiguration('maragtes');
         apiClient = new ApiClient(updatedConfig.get('apiUrl', DEFAULT_API_URL));
         historyProvider.setApiClient(apiClient);
 
-        if (SolidTestPanel.currentPanel) {
-            SolidTestPanel.currentPanel.setApiClient(apiClient);
+        if (maragtesPanel.currentPanel) {
+            maragtesPanel.currentPanel.setApiClient(apiClient);
         }
 
         await refreshDashboardSnapshot(context);
     }));
 
-    statusBar.showState('idle', 'SolidTest prêt');
+    statusBar.showState('idle', 'MA-RAGTes ready');
     void refreshDashboardSnapshot(context);
-    vscode.window.showInformationMessage('SolidTest prêt. Ouvrez un fichier .sol pour lancer un run.');
+    vscode.window.showInformationMessage('MA-RAGTes ready. Open a .sol file to start a run.');
+}
+
+async function handleOpenSubmitPanel(
+    context: vscode.ExtensionContext,
+    payload?: vscode.Uri | SubmissionPayload
+) {
+    const panel = maragtesPanel.createOrShow(context.extensionUri, apiClient);
+    panel.show();
+    panel.focusSection('status');
+
+    const uri = payload instanceof vscode.Uri
+        ? payload
+        : payload?.uri
+            ? vscode.Uri.file(payload.uri)
+            : payload?.contractPath
+                ? vscode.Uri.file(payload.contractPath)
+            : undefined;
+
+    const contract = await resolveContractContext(context, uri);
+    if (!contract) {
+        panel.setError('No Solidity contract selected.');
+        return;
+    }
+
+    const preferredEnvironment = getPreferredEnvironment(context);
+    panel.setSelectedEnvironment(preferredEnvironment);
+    panel.setActiveContract({
+        name: contract.contractName,
+        path: contract.contractPath,
+        size: '-',
+        modified: '-'
+    });
+
+    statusBar.showState('idle', `Ready to submit ${contract.contractName}`);
+    await refreshDashboardSnapshot(context);
 }
 
 async function handleSubmitContract(
     context: vscode.ExtensionContext,
-    payload?: vscode.Uri | { uri?: string; contractPath?: string; environment?: string }
+    payload?: vscode.Uri | SubmissionPayload
 ) {
-    const panel = SolidTestPanel.createOrShow(context.extensionUri, apiClient);
+    const panel = maragtesPanel.createOrShow(context.extensionUri, apiClient);
     panel.show();
     panel.focusSection('status');
 
@@ -139,17 +186,20 @@ async function handleSubmitContract(
                 : undefined;
         const contract = await resolveContractContext(context, uri);
         if (!contract) {
-            panel.setError('Aucun contrat Solidity sélectionné.');
+            panel.setError('No Solidity contract selected.');
             return;
         }
 
         const explicitEnvironment = payload && !(payload instanceof vscode.Uri)
             ? payload.environment
             : undefined;
+        const userStory = payload && !(payload instanceof vscode.Uri)
+            ? (payload.userStory || '').trim()
+            : '';
         const environment = explicitEnvironment || await resolveEnvironment(context);
         if (!environment) {
-            statusBar.showState('idle', 'Soumission annulée');
-            panel.setError('Soumission annulée. Aucun environnement sélectionné.');
+            statusBar.showState('idle', 'Submission cancelled');
+            panel.setError('Submission cancelled. No environment selected.');
             return;
         }
 
@@ -161,17 +211,18 @@ async function handleSubmitContract(
             modified: '-'
         });
 
-        statusBar.showState('submitting', `Soumission de ${contract.contractName}...`);
+        statusBar.showState('submitting', `Submitting ${contract.contractName}...`);
 
         const submission: ContractSubmission = {
             contractCode: contract.contractCode,
             contractName: contract.contractName,
-            environment
+            environment,
+            userStory
         };
 
         const response = await apiClient.submitContract(submission);
         if (response.status === 'error' || !response.run_id) {
-            const message = response.message || 'Soumission impossible';
+            const message = response.message || 'Submission failed';
             vscode.window.showErrorMessage(message);
             statusBar.showState('error', message);
             panel.setError(message);
@@ -180,7 +231,7 @@ async function handleSubmitContract(
         }
 
         await context.workspaceState.update(LAST_ENVIRONMENT_KEY, environment);
-        statusBar.showState('running', `Run ${shortRunId(response.run_id)} en cours`);
+        statusBar.showState('running', `Run ${shortRunId(response.run_id)} running`);
 
         panel.setRunFocus(response.run_id);
 
@@ -189,7 +240,7 @@ async function handleSubmitContract(
         void refreshDashboardSnapshot(context, response.run_id);
         void watchRun(context, response.run_id, panel);
     } catch (error) {
-        const message = formatError(error, DEFAULT_API_URL, 'Impossible de soumettre le contrat');
+        const message = formatError(error, DEFAULT_API_URL, 'Failed to submit contract');
         vscode.window.showErrorMessage(message);
         statusBar.showState('error', message);
         panel.setError(message);
@@ -198,14 +249,14 @@ async function handleSubmitContract(
 }
 
 async function handleViewHistory(context: vscode.ExtensionContext) {
-    const panel = SolidTestPanel.createOrShow(context.extensionUri, apiClient);
+    const panel = maragtesPanel.createOrShow(context.extensionUri, apiClient);
     panel.show();
     panel.focusSection('history');
     await refreshDashboardSnapshot(context);
 }
 
 async function handleOpenDashboard() {
-    const config = vscode.workspace.getConfiguration('solidtest');
+    const config = vscode.workspace.getConfiguration('maragtes');
     const frontendUrl = config.get('frontendUrl', DEFAULT_FRONTEND_URL);
     const reachability = await apiClient.checkFrontendReachable(frontendUrl);
     if (reachability.reachable) {
@@ -221,21 +272,21 @@ async function handleOpenDashboard() {
     if (fallbackReachability.reachable) {
         await config.update('frontendUrl', fallbackUrl, vscode.ConfigurationTarget.Global);
         await vscode.env.openExternal(vscode.Uri.parse(fallbackUrl));
-        vscode.window.showInformationMessage(`Dashboard ouvert sur ${fallbackUrl}.`);
+        vscode.window.showInformationMessage(`Dashboard opened at ${fallbackUrl}.`);
         return;
     }
 
-    vscode.window.showWarningMessage(`Dashboard indisponible, lance frontend/ sur ${frontendUrl} ou ${fallbackUrl}.`);
+    vscode.window.showWarningMessage(`Dashboard unavailable, start frontend on ${frontendUrl} ou ${fallbackUrl}.`);
 }
 
 async function handleOpenLatestResult(context: vscode.ExtensionContext) {
     const latestRun = await safeLatestRun();
     if (!latestRun) {
-        vscode.window.showInformationMessage('Aucun run disponible pour le moment.');
+        vscode.window.showInformationMessage('No run available at the moment.');
         return;
     }
 
-    const panel = SolidTestPanel.createOrShow(context.extensionUri, apiClient, latestRun.run_id);
+    const panel = maragtesPanel.createOrShow(context.extensionUri, apiClient, latestRun.run_id);
     panel.show();
     panel.focusSection('results');
     panel.setRunFocus(latestRun.run_id);
@@ -243,7 +294,7 @@ async function handleOpenLatestResult(context: vscode.ExtensionContext) {
 }
 
 async function handleViewResults(context: vscode.ExtensionContext, runId: string) {
-    const panel = SolidTestPanel.createOrShow(context.extensionUri, apiClient, runId);
+    const panel = maragtesPanel.createOrShow(context.extensionUri, apiClient, runId);
     panel.show();
     panel.focusSection('results');
     panel.setRunFocus(runId);
@@ -253,9 +304,9 @@ async function handleViewResults(context: vscode.ExtensionContext, runId: string
         panel.setRunDetails(runId, details);
     } catch (error) {
         const run = await safeRunStatus(runId);
-        const fallback = run ?? { run_id: runId, status: 'error', error: formatError(error, DEFAULT_API_URL, 'Impossible de charger les résultats') };
+        const fallback = run ?? { run_id: runId, status: 'error', error: formatError(error, DEFAULT_API_URL, 'Failed to load results') };
         panel.setRunDetails(runId, fallback);
-        vscode.window.showWarningMessage(fallback.error || 'Impossible de charger les résultats.');
+        vscode.window.showWarningMessage(fallback.error || 'Failed to load results.');
     }
 }
 
@@ -285,7 +336,7 @@ async function resolveContractContext(context: vscode.ExtensionContext, uri?: vs
 
     const picked = await pickContractFile();
     if (!picked) {
-        vscode.window.showInformationMessage('Aucun contrat Solidity sélectionné. Ouvrez un fichier .sol puis relancez SolidTest.');
+        vscode.window.showInformationMessage('No Solidity contract selected. Open a .sol file then retry MA-RAGTes.');
         return null;
     }
 
@@ -322,8 +373,8 @@ async function pickContractFile(): Promise<vscode.Uri | undefined> {
             uri: file
         })),
         {
-            title: 'Choisir un contrat Solidity',
-            placeHolder: 'Sélectionnez le fichier .sol à soumettre'
+            title: 'Choose a Solidity contract',
+            placeHolder: 'Select the .sol file to submit'
         }
     );
 
@@ -331,7 +382,7 @@ async function pickContractFile(): Promise<vscode.Uri | undefined> {
 }
 
 async function resolveEnvironment(context: vscode.ExtensionContext): Promise<string | undefined> {
-    const config = vscode.workspace.getConfiguration('solidtest');
+    const config = vscode.workspace.getConfiguration('maragtes');
     const lastEnvironment = context.workspaceState.get<string>(LAST_ENVIRONMENT_KEY);
     const defaultEnvironment = config.get('defaultEnvironment', 'simulation');
 
@@ -342,7 +393,7 @@ async function resolveEnvironment(context: vscode.ExtensionContext): Promise<str
     const picked = await vscode.window.showQuickPick(
         ['simulation', 'testnet', 'mainnet', 'custom...'],
         {
-            title: 'Sélectionnez l’environnement d’exécution',
+            title: 'Select execution environment',
             placeHolder: 'Environment used to run the pipeline',
             ignoreFocusOut: true,
             canPickMany: false
@@ -355,8 +406,8 @@ async function resolveEnvironment(context: vscode.ExtensionContext): Promise<str
 
     if (picked === 'custom...') {
         const custom = await vscode.window.showInputBox({
-            title: 'Environnement personnalisé',
-            prompt: 'Entrez le nom de l’environnement',
+            title: 'Custom environment',
+            prompt: 'Enter environment name',
             value: defaultEnvironment,
             ignoreFocusOut: true
         });
@@ -366,8 +417,13 @@ async function resolveEnvironment(context: vscode.ExtensionContext): Promise<str
     return picked;
 }
 
+function getPreferredEnvironment(context: vscode.ExtensionContext): string {
+    const config = vscode.workspace.getConfiguration('maragtes');
+    return context.workspaceState.get<string>(LAST_ENVIRONMENT_KEY) || config.get('defaultEnvironment', 'simulation');
+}
+
 async function buildDashboardSnapshot(context: vscode.ExtensionContext, selectedRunId?: string): Promise<DashboardSnapshot> {
-    const config = vscode.workspace.getConfiguration('solidtest');
+    const config = vscode.workspace.getConfiguration('maragtes');
     const apiUrl = config.get('apiUrl', DEFAULT_API_URL);
     const frontendUrl = config.get('frontendUrl', DEFAULT_FRONTEND_URL);
     const lastEnvironment = context.workspaceState.get<string>(LAST_ENVIRONMENT_KEY) || config.get('defaultEnvironment', 'simulation');
@@ -406,7 +462,7 @@ async function buildDashboardSnapshot(context: vscode.ExtensionContext, selected
 }
 
 async function refreshDashboardSnapshot(context: vscode.ExtensionContext, selectedRunId?: string): Promise<void> {
-    const panel = SolidTestPanel.currentPanel;
+    const panel = maragtesPanel.currentPanel;
     if (!panel) {
         return;
     }
@@ -471,7 +527,7 @@ async function safeApiHealth(): Promise<boolean> {
     }
 }
 
-async function renderRunDetails(panel: SolidTestPanel, runId: string, fallback?: RunRecord | null): Promise<void> {
+async function renderRunDetails(panel: maragtesPanel, runId: string, fallback?: RunRecord | null): Promise<void> {
     try {
         const details = await apiClient.getResults(runId);
         panel.setRunDetails(runId, details);
@@ -482,13 +538,13 @@ async function renderRunDetails(panel: SolidTestPanel, runId: string, fallback?:
             panel.setRunDetails(runId, {
                 run_id: runId,
                 status: 'error',
-                error: 'Impossible de charger les détails du run'
+                error: 'Failed to load run details'
             });
         }
     }
 }
 
-async function watchRun(context: vscode.ExtensionContext, runId: string, panel: SolidTestPanel): Promise<void> {
+async function watchRun(context: vscode.ExtensionContext, runId: string, panel: maragtesPanel): Promise<void> {
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = undefined;
@@ -507,9 +563,9 @@ async function watchRun(context: vscode.ExtensionContext, runId: string, panel: 
                 }
 
                 if (status.status === 'error') {
-                    statusBar.showState('error', status.error || `Run ${shortRunId(runId)} en erreur`);
+                    statusBar.showState('error', status.error || `Run ${shortRunId(runId)} failed`);
                 } else {
-                    statusBar.showState('done', `Run ${shortRunId(runId)} terminé`);
+                    statusBar.showState('done', `Run ${shortRunId(runId)} completed`);
                 }
 
                 const details = await apiClient.getResults(runId).catch(() => null);
@@ -528,7 +584,7 @@ async function watchRun(context: vscode.ExtensionContext, runId: string, panel: 
                 pollTimer = undefined;
             }
 
-            const message = formatError(error, DEFAULT_API_URL, 'Erreur réseau pendant le suivi du run');
+            const message = formatError(error, DEFAULT_API_URL, 'Error réseau pendant le suivi du run');
             statusBar.showState('error', message);
             panel.setError(message);
             vscode.window.showWarningMessage(message);
@@ -552,10 +608,10 @@ function shortRunId(runId: string): string {
 
 function buildRunStatusLabel(run: RunRecord): string {
     const statusPart = run.status === 'running'
-        ? 'en cours'
+        ? 'running'
         : run.status === 'done'
-            ? 'terminé'
-            : 'en erreur';
+            ? 'completed'
+            : 'failed';
 
     const currentNode = run.current_node ? ` · ${run.current_node}` : '';
     return `Run ${shortRunId(run.run_id)} ${statusPart}${currentNode}`;
@@ -563,8 +619,8 @@ function buildRunStatusLabel(run: RunRecord): string {
 
 function formatError(error: unknown, apiUrl: string, fallback: string): string {
     if (error instanceof Error) {
-        if (error.message.includes('API inaccessible')) {
-            return `API inaccessible sur ${apiUrl}.`;
+        if (error.message.includes('API unreachable')) {
+            return `API unreachable at ${apiUrl}.`;
         }
         return `${fallback}: ${error.message}`;
     }
@@ -581,3 +637,5 @@ export function deactivate() {
     statusBar.dispose();
     historyProvider.dispose();
 }
+
+

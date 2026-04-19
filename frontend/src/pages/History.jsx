@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { clearHistory, getHistory, getResults } from "../services/api";
 
 const FILTERS = ["All", "Done", "Running", "Error"];
@@ -45,6 +45,13 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
   const [details, setDetails] = useState(null);
   const [detailsRunId, setDetailsRunId] = useState("");
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const detailsSectionRef = useRef(null);
+
+  const scrollToDetails = () => {
+    if (detailsSectionRef.current) {
+      detailsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
   const loadRuns = async () => {
     try {
@@ -52,7 +59,7 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
       setRuns(Array.isArray(history) ? history : []);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors du chargement de l'historique.");
+      setError(err instanceof Error ? err.message : "Error while loading history.");
     } finally {
       setIsLoading(false);
     }
@@ -73,7 +80,7 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
   useEffect(() => {
     if (!selectedRunId) return;
     setDetailsRunId(selectedRunId);
-    void handleViewResults(selectedRunId);
+    void handleViewResults(selectedRunId, { scroll: true });
   }, [selectedRunId, navigationToken]);
 
   const filteredRuns = useMemo(() => {
@@ -94,22 +101,29 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
     };
   }, [runs]);
 
-  const handleViewResults = async (runId) => {
+  const handleViewResults = async (runId, options = {}) => {
+    const shouldScroll = Boolean(options.scroll);
     try {
       setDetailsLoading(true);
       setDetailsRunId(runId);
       const response = await getResults(runId);
       setDetails(response);
+      if (shouldScroll) {
+        setTimeout(scrollToDetails, 50);
+      }
     } catch (err) {
       setDetails(null);
-      setError(err instanceof Error ? err.message : "Impossible de charger les résultats.");
+      setError(err instanceof Error ? err.message : "Unable to load results.");
+      if (shouldScroll) {
+        setTimeout(scrollToDetails, 50);
+      }
     } finally {
       setDetailsLoading(false);
     }
   };
 
   const handleClearHistory = async () => {
-    if (!window.confirm("Supprimer tout l'historique des runs ?")) return;
+    if (!window.confirm("Delete all run history?")) return;
     try {
       setIsClearing(true);
       await clearHistory();
@@ -117,7 +131,7 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
       setDetailsRunId("");
       await loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Impossible de vider l'historique.");
+      setError(err instanceof Error ? err.message : "Unable to clear history.");
     } finally {
       setIsClearing(false);
     }
@@ -126,7 +140,7 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
   return (
     <div className="fade-in">
       <div className="page-title">Test History</div>
-      <div className="page-sub">Historique réel des runs du backend FastAPI.</div>
+      <div className="page-sub">Live run history from the FastAPI backend.</div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: "1rem" }}>
         <button className="btn" onClick={loadRuns}>Refresh</button>
@@ -224,10 +238,10 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
               <span>
                 <button
                   className="btn"
-                  onClick={() => canViewResults ? handleViewResults(run.run_id) : undefined}
+                  onClick={() => canViewResults ? handleViewResults(run.run_id, { scroll: true }) : undefined}
                   disabled={!canViewResults || detailsLoading}
                 >
-                  {canViewResults ? "Results" : "Running"}
+                  {canViewResults ? "Details" : "Running"}
                 </button>
               </span>
             </div>
@@ -235,7 +249,7 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
         })}
       </div>
 
-      <div className="card" style={{ padding: "1rem" }}>
+      <div ref={detailsSectionRef} className="card" style={{ padding: "1rem" }}>
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Run Details {detailsRunId ? `(${detailsRunId})` : ""}</div>
         {detailsLoading ? (
           <div style={{ color: "#64748b" }}>Loading results...</div>
@@ -286,7 +300,7 @@ export default function History({ selectedRunId = "", navigationToken = 0, onNew
             </div>
           </div>
         ) : (
-          <div style={{ color: "#64748b" }}>Sélectionnez un run terminé pour voir les résultats détaillés.</div>
+          <div style={{ color: "#64748b" }}>Select a completed run to view detailed results.</div>
         )}
       </div>
     </div>
