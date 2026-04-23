@@ -2,7 +2,7 @@
   "name": "vscode-maragtes",
   "displayName": "MA-RAGTes",
   "description": "VS Code extension to automatically generate tests for Solidity smart contracts",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "publisher": "maragtes",
   "license": "MIT",
   "engines": {

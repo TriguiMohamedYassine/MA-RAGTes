@@ -33,7 +33,6 @@ if str(_ROOT) not in sys.path:
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import set_key
 
 from backend.workflows.orchestrator import build_graph
 from backend.config.settings import (
@@ -76,6 +75,10 @@ app.add_middleware(
 async def _on_startup() -> None:
     _init_db()
     _load_runs_from_db()
+    # Load persisted runtime secrets (if present) so users don't need to re-enter keys.
+    stored_llm_key = _get_app_setting("mistral_api_key")
+    if stored_llm_key:
+        set_mistral_api_key(stored_llm_key)
 
 # ---------------------------------------------------------------------------
 # Stockage en mémoire des runs
@@ -148,6 +151,15 @@ def _init_db() -> None:
                 test_code TEXT,
                 test_design TEXT,
                 llm_stats TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
                 updated_at TEXT NOT NULL
             )
             """
@@ -236,6 +248,27 @@ def _clear_runs_db() -> None:
     with _DB_LOCK, _db_connect() as conn:
         conn.execute("DELETE FROM runs")
         conn.commit()
+
+
+def _set_app_setting(key: str, value: str) -> None:
+    with _DB_LOCK, _db_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,
+                updated_at=excluded.updated_at
+            """,
+            (key, value, datetime.now().isoformat()),
+        )
+        conn.commit()
+
+
+def _get_app_setting(key: str) -> str:
+    with _DB_LOCK, _db_connect() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    return (row["value"] if row and row["value"] is not None else "").strip()
 
 # ---------------------------------------------------------------------------
 # Modèles Pydantic
@@ -528,14 +561,12 @@ async def clear_history():
 
 @app.post("/api/settings/llm-key")
 async def save_llm_key(req: LlmApiKeyRequest):
-    """Enregistre la clé API LLM dans .env et la charge en mémoire runtime."""
+    """Enregistre la clé API LLM en base locale et la charge en mémoire runtime."""
     api_key = (req.api_key or "").strip()
     if not api_key:
         raise HTTPException(status_code=400, detail="api_key ne peut pas être vide.")
 
-    env_path = BASE_DIR / ".env"
-    env_path.touch(exist_ok=True)
-    set_key(str(env_path), "MISTRAL_API_KEY", api_key)
+    _set_app_setting("mistral_api_key", api_key)
     set_mistral_api_key(api_key)
 
     return {"status": "ok", "message": "Clé API LLM enregistrée avec succès."}

@@ -202,6 +202,9 @@ export class maragtesPanel {
             case 'get-settings':
                 await this.handleGetSettings();
                 break;
+            case 'save-llm-key':
+                await this.handleSaveLlmKey(message.apiKey);
+                break;
         }
     }
 
@@ -369,6 +372,33 @@ export class maragtesPanel {
         });
     }
 
+    private async handleSaveLlmKey(apiKey?: string) {
+        const normalized = typeof apiKey === 'string' ? apiKey.trim() : '';
+        if (!normalized) {
+            this.postMessage({
+                type: 'llm-key-save-result',
+                ok: false,
+                message: 'Please enter a valid API key.'
+            });
+            return;
+        }
+
+        try {
+            await this.apiClient.saveLlmApiKey(normalized);
+            this.postMessage({
+                type: 'llm-key-save-result',
+                ok: true,
+                message: 'LLM API key saved successfully.'
+            });
+        } catch (error: any) {
+            this.postMessage({
+                type: 'llm-key-save-result',
+                ok: false,
+                message: error?.message || 'Failed to save API key.'
+            });
+        }
+    }
+
     private async safeHistory(): Promise<RunRecord[]> {
         try {
             return await this.apiClient.getHistory();
@@ -483,23 +513,73 @@ export class maragtesPanel {
             </div>
         </header>
 
-        <section id="statusSection" class="card">
-            <div class="card-header">
-                <div>
-                    <div class="card-kicker">Status</div>
-                    <h2>Pipeline live</h2>
+        <section id="inputsSection" class="grid-two">
+            <article class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-kicker">Inputs</div>
+                        <h2>User story</h2>
+                    </div>
                 </div>
-                <span id="statusBadge" class="status-pill">idle</span>
-            </div>
-            <p id="statusMessage" class="muted"></p>
-            <div id="progressBar" class="progress-track">
-                <div id="progressFill" class="progress-fill"></div>
-            </div>
-            <div id="pipelineTimeline" class="timeline"></div>
-            <div id="runMeta" class="run-meta"></div>
+                <div class="form-row">
+                    <label for="userStoryInput">User story (optional)</label>
+                    <textarea id="userStoryInput" rows="5" placeholder="Paste your user story here, or load it from a file."></textarea>
+                    <div class="user-story-actions">
+                        <button id="selectUserStoryBtn" class="btn btn-secondary" type="button">Load user story file</button>
+                        <button id="latestResultBtn" class="btn btn-secondary" type="button">Open latest result</button>
+                    </div>
+                </div>
+            </article>
+
+            <article class="card" id="settingsSection">
+                <div class="card-header">
+                    <div>
+                        <div class="card-kicker">Inputs</div>
+                        <h2>LLM API key</h2>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label for="llmApiKeyInput">Mistral API key</label>
+                    <input id="llmApiKeyInput" type="password" placeholder="mistral_api_key..." />
+                </div>
+                <div class="inline-actions">
+                    <button id="saveLlmKeyBtn" class="btn btn-primary" type="button">Save API key</button>
+                </div>
+                <p id="llmKeyMessage" class="muted"></p>
+            </article>
         </section>
 
         <section class="grid-two">
+            <article id="statusSection" class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-kicker">Status</div>
+                        <h2>Pipeline live</h2>
+                    </div>
+                    <span id="statusBadge" class="status-pill">idle</span>
+                </div>
+                <p id="statusMessage" class="muted"></p>
+                <div id="progressBar" class="progress-track">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <div id="pipelineTimeline" class="timeline"></div>
+                <div id="runMeta" class="run-meta"></div>
+            </article>
+
+            <article class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-kicker">Summary</div>
+                        <h2>Quick result</h2>
+                    </div>
+                    <button id="refreshHistoryBtn" class="text-button" type="button">Refresh</button>
+                </div>
+                <div id="quickSummary" class="summary-grid"></div>
+                <div id="resultError" class="error-box hidden"></div>
+            </article>
+        </section>
+
+        <section>
             <article class="card">
                 <div class="card-header">
                     <div>
@@ -517,26 +597,6 @@ export class maragtesPanel {
                         <option value="mainnet">mainnet</option>
                     </select>
                 </div>
-                <div class="form-row">
-                    <label for="userStoryInput">User story (optional)</label>
-                    <textarea id="userStoryInput" rows="5" placeholder="Paste your user story here, or load it from a file."></textarea>
-                    <div class="user-story-actions">
-                        <button id="selectUserStoryBtn" class="btn btn-secondary" type="button">Load user story file</button>
-                        <button id="latestResultBtn" class="btn btn-secondary" type="button">Open latest result</button>
-                    </div>
-                </div>
-            </article>
-
-            <article class="card">
-                <div class="card-header">
-                    <div>
-                        <div class="card-kicker">Summary</div>
-                        <h2>Quick result</h2>
-                    </div>
-                    <button id="refreshHistoryBtn" class="text-button" type="button">Refresh</button>
-                </div>
-                <div id="quickSummary" class="summary-grid"></div>
-                <div id="resultError" class="error-box hidden"></div>
             </article>
         </section>
 

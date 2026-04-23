@@ -47,6 +47,9 @@ const dom = {
   runDetailsError: document.getElementById('runDetailsError'),
   runDetailsCode: document.getElementById('runDetailsCode'),
   runDetailsLogs: document.getElementById('runDetailsLogs'),
+  llmApiKeyInput: document.getElementById('llmApiKeyInput'),
+  saveLlmKeyBtn: document.getElementById('saveLlmKeyBtn'),
+  llmKeyMessage: document.getElementById('llmKeyMessage'),
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -67,6 +70,7 @@ function wireEvents() {
   dom.copyCodeBtn?.addEventListener('click', handleCopyTestCode);
   dom.copyCodeInlineBtn?.addEventListener('click', handleCopyTestCode);
   dom.downloadReportBtn?.addEventListener('click', handleDownloadReport);
+  dom.saveLlmKeyBtn?.addEventListener('click', handleSaveLlmKey);
 
   dom.environmentSelect?.addEventListener('change', () => {
     state.selectedEnvironment = dom.environmentSelect.value;
@@ -144,6 +148,15 @@ function handleMessage(event) {
       break;
     case 'error':
       showError(message.message || 'Unknown error');
+      break;
+    case 'llm-key-save-result':
+      if (dom.llmKeyMessage) {
+        dom.llmKeyMessage.textContent = message.message || '';
+        dom.llmKeyMessage.style.color = message.ok ? '#166534' : '#b91c1c';
+      }
+      if (message.ok && dom.llmApiKeyInput) {
+        dom.llmApiKeyInput.value = '';
+      }
       break;
   }
 }
@@ -283,6 +296,14 @@ function handleOpenContractFile() {
   vscode.postMessage({
     type: 'open-contract-file',
     path: contract.path,
+  });
+}
+
+function handleSaveLlmKey() {
+  const apiKey = dom.llmApiKeyInput?.value?.trim() || '';
+  vscode.postMessage({
+    type: 'save-llm-key',
+    apiKey,
   });
 }
 

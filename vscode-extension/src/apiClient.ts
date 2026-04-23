@@ -159,6 +159,21 @@ export class ApiClient {
         }
     }
 
+    async saveLlmApiKey(apiKey: string): Promise<void> {
+        const normalized = String(apiKey || '').trim();
+        if (!normalized) {
+            throw new Error('API key is required.');
+        }
+
+        try {
+            await this.client.post('/api/settings/llm-key', {
+                api_key: normalized
+            });
+        } catch (error: any) {
+            throw new Error(this.formatError(error, 'Failed to save API key'));
+        }
+    }
+
     private formatError(error: unknown, fallback: string): string {
         if (axios.isAxiosError(error)) {
             const axiosError = error as AxiosError<any>;
