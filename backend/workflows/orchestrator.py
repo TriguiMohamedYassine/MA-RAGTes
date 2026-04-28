@@ -26,7 +26,7 @@ from backend.config.settings       import DEFAULT_MAX_RETRIES
 class PipelineState(TypedDict, total=False):
     contract_code:       str
     user_story:          str
-    source_filename:     str   # nom du fichier .sol original (ex: "SimpleSwap.sol")
+    source_filename:     str   
     max_retries:         int
     statement_coverage_threshold: int
     branch_coverage_threshold:    int
@@ -41,7 +41,7 @@ class PipelineState(TypedDict, total=False):
     evaluation_decision: str
     evaluation_reason:   str
     iterations:          int
-    prev_score:          float   # score de l'itération précédente pour détection de stagnation
+    prev_score:          float   
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ def build_graph() -> StateGraph:
     """
     graph = StateGraph(PipelineState)
 
-    # --- Nœuds ---
+    # --- Nodes ---
     graph.add_node("test_designer",    test_designer_node)
     graph.add_node("generator_normal", generator_normal_node)
     graph.add_node("executor",         executor_node)
@@ -245,21 +245,21 @@ def build_graph() -> StateGraph:
     graph.add_node("increment",        _increment_iterations)
     graph.add_node("corrector",        generator_corrector_node)
 
-    # --- Arêtes du flux principal ---
+    # --- Set up the main flow ---
     graph.set_entry_point("test_designer")
     graph.add_edge("test_designer",    "generator_normal")
     graph.add_edge("generator_normal", "executor")
     graph.add_edge("executor",         "analyzer")
     graph.add_edge("analyzer",         "evaluator")
 
-    # --- Routage conditionnel depuis l'Évaluateur ---
+    # --- Conditional routing after evaluation ---
     graph.add_conditional_edges(
         "evaluator",
         _route_after_evaluation,
         {"increment": "increment", END: END},
     )
 
-    # --- Boucle de correction ---
+    # --- Correction loop ---
     graph.add_edge("increment", "corrector")
     graph.add_edge("corrector", "executor")
 

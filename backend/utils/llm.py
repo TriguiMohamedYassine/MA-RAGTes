@@ -27,16 +27,64 @@ load_dotenv()
 _LLM_STATS: dict[str, Any] = {
     "calls": 0,
     "total_time_seconds": 0.0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
 }
 
 
 def reset_llm_stats() -> None:
     _LLM_STATS["calls"] = 0
     _LLM_STATS["total_time_seconds"] = 0.0
+    _LLM_STATS["prompt_tokens"] = 0
+    _LLM_STATS["completion_tokens"] = 0
+    _LLM_STATS["total_tokens"] = 0
 
 
 def get_llm_stats() -> dict[str, Any]:
     return dict(_LLM_STATS)
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_token_usage(result: Any) -> tuple[int, int, int]:
+    """
+    Extract token usage from common LangChain/Mistral response shapes.
+
+    Supported shapes:
+    - result.usage_metadata: {input_tokens, output_tokens, total_tokens}
+    - result.response_metadata.token_usage: {prompt_tokens, completion_tokens, total_tokens}
+    - result.response_metadata.usage: {prompt_tokens|input_tokens, completion_tokens|output_tokens, total_tokens}
+    """
+    usage_metadata = getattr(result, "usage_metadata", None)
+    if isinstance(usage_metadata, dict):
+        prompt = _safe_int(usage_metadata.get("input_tokens"))
+        completion = _safe_int(usage_metadata.get("output_tokens"))
+        total = _safe_int(usage_metadata.get("total_tokens")) or (prompt + completion)
+        return prompt, completion, total
+
+    response_metadata = getattr(result, "response_metadata", None)
+    if isinstance(response_metadata, dict):
+        token_usage = response_metadata.get("token_usage")
+        if isinstance(token_usage, dict):
+            prompt = _safe_int(token_usage.get("prompt_tokens"))
+            completion = _safe_int(token_usage.get("completion_tokens"))
+            total = _safe_int(token_usage.get("total_tokens")) or (prompt + completion)
+            return prompt, completion, total
+
+        usage = response_metadata.get("usage")
+        if isinstance(usage, dict):
+            prompt = _safe_int(usage.get("prompt_tokens") or usage.get("input_tokens"))
+            completion = _safe_int(usage.get("completion_tokens") or usage.get("output_tokens"))
+            total = _safe_int(usage.get("total_tokens")) or (prompt + completion)
+            return prompt, completion, total
+
+    return 0, 0, 0
 
 
 # ---------------------------------------------------------------------------
@@ -120,9 +168,13 @@ def invoke_with_retry(
                     )
 
             elapsed = time.perf_counter() - start
+            prompt_tokens, completion_tokens, total_tokens = _extract_token_usage(result)
 
             _LLM_STATS["calls"] += 1
             _LLM_STATS["total_time_seconds"] += elapsed
+            _LLM_STATS["prompt_tokens"] += prompt_tokens
+            _LLM_STATS["completion_tokens"] += completion_tokens
+            _LLM_STATS["total_tokens"] += total_tokens
 
             return result
 

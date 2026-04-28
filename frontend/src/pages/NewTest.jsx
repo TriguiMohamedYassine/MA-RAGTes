@@ -321,9 +321,8 @@ export default function NewTest({ onRunStarted }) {
           setCode(text);
           setFileName(file.name);
           setError("");
-          if (!contractName) {
-            setContractName(file.name.replace(/\.sol$/i, ""));
-          }
+          // Always update the contract name from the uploaded file
+          setContractName(file.name.replace(/\.sol$/i, ""));
         }
       } catch {
         setError("Error while reading file.");
